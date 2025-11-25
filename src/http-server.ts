@@ -4,6 +4,8 @@ import { fileURLToPath } from "url";
 import { AddressInfo } from "net";
 import { ReviewManager } from "./review-manager.js";
 import { logger } from "./logger.js";
+import { sseManager } from "./sse-manager.js";
+import { reviewEventBus } from "./event-bus.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -101,20 +103,49 @@ export class HttpServer {
     // Update Plan Content (creates new version)
     this.app.put("/api/reviews/:id/plan", async (req: Request, res: Response) => {
       try {
-        const { content, changeDescription, author } = req.body;
+        const { content, changeDescription, author, resolvedComments } = req.body;
 
         if (!content || typeof content !== 'string') {
           res.status(400).json({ error: "Missing or invalid 'content' field" });
           return;
         }
 
+        const review = await this.reviewManager.getReview(req.params.id);
+        const previousStatus = review?.status;
+        const previousVersion = review?.currentVersion;
+
         const updatedReview = await this.reviewManager.updatePlanContent(req.params.id, content, {
           changeDescription,
-          author: author || 'human'
+          author: author || 'human',
+          resolvedComments
         });
+
+        // 触发版本更新事件
+        if (previousVersion !== updatedReview.currentVersion) {
+          const newVersion = updatedReview.documentVersions.find(v => v.versionHash === updatedReview.currentVersion);
+          if (newVersion) {
+            reviewEventBus.emitVersionUpdated(
+              req.params.id,
+              {
+                versionHash: newVersion.versionHash,
+                createdAt: newVersion.createdAt,
+                changeDescription: newVersion.changeDescription,
+                author: newVersion.author
+              },
+              newVersion.content,
+              resolvedComments || []
+            );
+          }
+        }
+
+        // 触发状态变更事件
+        if (previousStatus && previousStatus !== updatedReview.status) {
+          reviewEventBus.emitStatusChanged(req.params.id, updatedReview.status, previousStatus);
+        }
+
         res.json(updatedReview);
       } catch (e: any) {
-        const statusCode = e.message === 'Review not found' ? 404 : 500;
+        const statusCode = e.message.includes('not found') ? 404 : 400;
         res.status(statusCode).json({ error: e.message });
       }
     });
@@ -199,9 +230,131 @@ export class HttpServer {
       }
     });
 
-    // Submit Review
+    // SSE Event Stream
+    this.app.get("/api/reviews/:id/events", async (req: Request, res: Response) => {
+      const review = await this.reviewManager.getReview(req.params.id);
+      if (!review) {
+        res.status(404).json({ error: "Review not found" });
+        return;
+      }
+
+      // 注册 SSE 客户端
+      const clientId = sseManager.registerClient(req.params.id, res);
+
+      // 发送初始连接数据
+      sseManager.sendConnectedEvent(clientId, review);
+
+      logger.info(`SSE: Client connected for review ${req.params.id}`);
+    });
+
+    // Submit Feedback (有批注)
+    this.app.post("/api/reviews/:id/submit-feedback", async (req: Request, res: Response) => {
+      try {
+        const review = await this.reviewManager.getReview(req.params.id);
+        const previousStatus = review?.status;
+
+        const updatedReview = await this.reviewManager.submitFeedback(req.params.id);
+
+        // 触发状态变更事件
+        if (previousStatus && previousStatus !== updatedReview.status) {
+          reviewEventBus.emitStatusChanged(req.params.id, updatedReview.status, previousStatus);
+        }
+
+        res.json({ status: "ok", reviewStatus: updatedReview.status });
+      } catch (e: any) {
+        const statusCode = e.message.includes('not found') ? 404 : 400;
+        res.status(statusCode).json({ error: e.message });
+      }
+    });
+
+    // Approve Review (无批注或接受修改)
+    this.app.post("/api/reviews/:id/approve", async (req: Request, res: Response) => {
+      try {
+        const review = await this.reviewManager.getReview(req.params.id);
+        const previousStatus = review?.status;
+
+        const updatedReview = await this.reviewManager.approveReview(req.params.id);
+
+        // 触发状态变更事件
+        if (previousStatus && previousStatus !== updatedReview.status) {
+          reviewEventBus.emitStatusChanged(req.params.id, updatedReview.status, previousStatus);
+        }
+
+        res.json({ status: "ok", reviewStatus: updatedReview.status });
+      } catch (e: any) {
+        const statusCode = e.message.includes('not found') ? 404 : 400;
+        res.status(statusCode).json({ error: e.message });
+      }
+    });
+
+    // Ask Questions (Agent 提问)
+    this.app.post("/api/reviews/:id/ask-questions", async (req: Request, res: Response) => {
+      try {
+        const { questions } = req.body;
+        if (!questions || !Array.isArray(questions)) {
+          res.status(400).json({ error: "Missing or invalid 'questions' array" });
+          return;
+        }
+
+        const review = await this.reviewManager.getReview(req.params.id);
+        const previousStatus = review?.status;
+
+        const updatedReview = await this.reviewManager.askQuestions(req.params.id, questions);
+
+        // 触发状态变更事件
+        if (previousStatus && previousStatus !== updatedReview.status) {
+          reviewEventBus.emitStatusChanged(req.params.id, updatedReview.status, previousStatus);
+        }
+
+        // 触发 questions 更新事件
+        const questionsData = questions.map(q => ({
+          commentId: q.commentId,
+          question: {
+            type: q.type,
+            message: q.message,
+            options: q.options
+          }
+        }));
+        reviewEventBus.emitQuestionsUpdated(req.params.id, questionsData);
+
+        res.json({ status: "ok", reviewStatus: updatedReview.status });
+      } catch (e: any) {
+        const statusCode = e.message.includes('not found') ? 404 : 400;
+        res.status(statusCode).json({ error: e.message });
+      }
+    });
+
+    // Answer Question (用户回答)
+    this.app.post("/api/reviews/:id/comments/:commentId/answer", async (req: Request, res: Response) => {
+      try {
+        const { answer } = req.body;
+        if (!answer || typeof answer !== 'string') {
+          res.status(400).json({ error: "Missing or invalid 'answer' field" });
+          return;
+        }
+
+        const comment = await this.reviewManager.answerQuestion(
+          req.params.id,
+          req.params.commentId,
+          answer
+        );
+
+        if (!comment) {
+          res.status(404).json({ error: "Comment not found or has no question" });
+          return;
+        }
+
+        res.json({ status: "ok", comment });
+      } catch (e: any) {
+        const statusCode = e.message.includes('not found') ? 404 : 400;
+        res.status(statusCode).json({ error: e.message });
+      }
+    });
+
+    // Submit Review (兼容旧接口，废弃)
     this.app.post("/api/reviews/:id/submit", async (req: Request, res: Response) => {
       try {
+        logger.warn(`Deprecated: /api/reviews/:id/submit called, use submit-feedback or approve instead`);
         await this.reviewManager.submitReview(req.params.id);
         res.json({ status: "ok" });
       } catch (e: any) {

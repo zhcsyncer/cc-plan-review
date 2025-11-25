@@ -50,7 +50,16 @@ export class McpService {
     // Tool 2: Get Review Result
     this.server.tool(
         "get_review_result",
-        "Retrieves the result of the human review. Call this only after the user has signaled they are done (e.g., by typing 'continue').",
+        `Get user's review feedback. Returns different content based on status:
+- pending: User hasn't submitted yet
+- submitted_feedback: Returns all comments with user feedback
+- questions_pending: Waiting for user to answer your questions
+- approved: Plan approved, proceed with implementation
+- revised: Waiting for user to review new revision
+
+WORKFLOW: After getting 'submitted_feedback', analyze comments and either:
+1. Call ask_questions if any comment needs clarification
+2. Call update_plan if all comments are clear`,
         {
             reviewId: z.string().optional().describe("The ID of the review. If omitted, fetches the latest active review."),
         },
@@ -66,56 +75,173 @@ export class McpService {
             if (!review) {
                 logger.info("get_review_result: No active review found");
                 return {
-                    content: [{ type: "text", text: "No active review found." }]
+                    content: [{ type: "text", text: JSON.stringify({ error: "No active review found." }) }]
                 };
             }
 
-            if (review.status !== 'submitted') {
-                 logger.info(`get_review_result: Review ${review.id} is pending`);
-                 return {
-                    content: [{ type: "text", text: "User has not submitted the review yet. Please wait for the user to finish." }]
-                };
+            // 根据状态返回不同内容
+            switch (review.status) {
+                case 'pending':
+                    logger.info(`get_review_result: Review ${review.id} is pending`);
+                    return {
+                        content: [{ type: "text", text: JSON.stringify({
+                            reviewId: review.id,
+                            status: 'pending',
+                            message: "User has not submitted the review yet. Please wait for the user to finish."
+                        }) }]
+                    };
+
+                case 'questions_pending':
+                    logger.info(`get_review_result: Review ${review.id} has questions pending`);
+                    return {
+                        content: [{ type: "text", text: JSON.stringify({
+                            reviewId: review.id,
+                            status: 'questions_pending',
+                            message: "Waiting for user to answer your questions. Please wait."
+                        }) }]
+                    };
+
+                case 'approved':
+                    logger.info(`get_review_result: Review ${review.id} approved`);
+                    return {
+                        content: [{ type: "text", text: JSON.stringify({
+                            reviewId: review.id,
+                            status: 'approved',
+                            message: "Plan approved by user. You may proceed with implementation."
+                        }) }]
+                    };
+
+                case 'revised':
+                    logger.info(`get_review_result: Review ${review.id} revised, waiting for user`);
+                    return {
+                        content: [{ type: "text", text: JSON.stringify({
+                            reviewId: review.id,
+                            status: 'revised',
+                            message: "Waiting for user to review the new revision. Please wait."
+                        }) }]
+                    };
+
+                case 'submitted_feedback':
+                default:
+                    // 返回用户的 comments
+                    const unresolvedComments = (review.comments || []).filter(c => !c.resolved);
+
+                    if (unresolvedComments.length === 0) {
+                        logger.info(`get_review_result: Review ${review.id} has no unresolved comments`);
+                        return {
+                            content: [{ type: "text", text: JSON.stringify({
+                                reviewId: review.id,
+                                status: 'submitted_feedback',
+                                comments: [],
+                                message: "No unresolved comments. You can call update_plan to submit new version."
+                            }) }]
+                        };
+                    }
+
+                    const commentsData = unresolvedComments.map(c => ({
+                        id: c.id,
+                        quote: c.quote,
+                        comment: c.comment,
+                        answer: c.answer  // 如果之前有 question，这是用户的回答
+                    }));
+
+                    logger.info(`get_review_result: Returned ${unresolvedComments.length} comments for review ${review.id}`);
+                    return {
+                        content: [{ type: "text", text: JSON.stringify({
+                            reviewId: review.id,
+                            status: 'submitted_feedback',
+                            comments: commentsData
+                        }) }]
+                    };
             }
-
-            // Format Comments
-            const comments = review.comments || [];
-            if (comments.length === 0) {
-                logger.info(`get_review_result: Review ${review.id} approved with no comments`);
-                return {
-                    content: [{ type: "text", text: `Review ID: ${review.id}\n\nUser has approved the plan with no comments.` }]
-                };
-            }
-
-            const commentsText = comments
-              .map((item, index) => {
-                return `${index + 1}. [Quote: "${item.quote}"] -> Comment: ${item.comment}`;
-              })
-              .join("\n");
-
-            logger.info(`get_review_result: Returned ${comments.length} comments for review ${review.id}`);
-            return {
-                content: [{ type: "text", text: `Review ID: ${review.id}\n\nUser feedback:\n\n${commentsText}` }]
-            };
         }
     );
 
-    // Tool 3: Update Plan
+    // Tool 3: Ask Questions
+    this.server.tool(
+        "ask_questions",
+        `Ask questions or acknowledge comments from user feedback.
+MUST cover ALL unresolved comments - each comment needs a question entry.
+
+Question types:
+- clarification: Need user to explain further (shows text input)
+- choice: Provide options for user to choose (shows radio buttons)
+- accepted: Acknowledge the comment, provide resolution message
+
+After calling this, status changes to 'questions_pending'.
+Wait for user to answer, then call get_review_result again.`,
+        {
+            reviewId: z.string().describe("The ID of the review."),
+            questions: z.array(z.object({
+                commentId: z.string().describe("The ID of the comment to respond to."),
+                type: z.enum(['clarification', 'choice', 'accepted']).describe("Type of question/response."),
+                message: z.string().describe("Your question or acceptance message."),
+                options: z.array(z.string()).optional().describe("Options for 'choice' type (required for choice).")
+            })).describe("Array of questions/responses for each comment.")
+        },
+        async ({ reviewId, questions }) => {
+            logger.info(`Tool called: ask_questions (reviewId: ${reviewId}, ${questions.length} questions)`);
+
+            try {
+                const review = await this.reviewManager.askQuestions(reviewId, questions);
+
+                const acceptedCount = questions.filter(q => q.type === 'accepted').length;
+                const pendingCount = questions.filter(q => q.type !== 'accepted').length;
+
+                logger.info(`ask_questions: ${acceptedCount} accepted, ${pendingCount} pending for review ${reviewId}`);
+
+                return {
+                    content: [{ type: "text", text: JSON.stringify({
+                        success: true,
+                        reviewId: review.id,
+                        status: review.status,
+                        acceptedCount,
+                        pendingCount,
+                        message: pendingCount > 0
+                            ? `Questions sent. ${acceptedCount} comments accepted, ${pendingCount} awaiting user response. Wait for user to answer.`
+                            : `All ${acceptedCount} comments accepted. You can now call update_plan.`
+                    }) }]
+                };
+            } catch (e: any) {
+                logger.error(`ask_questions failed: ${e.message}`);
+                return {
+                    content: [{ type: "text", text: JSON.stringify({
+                        success: false,
+                        error: e.message
+                    }) }]
+                };
+            }
+        }
+    );
+
+    // Tool 4: Update Plan
     this.server.tool(
         "update_plan",
-        "Updates the plan content based on review feedback. Creates a new version. The user's browser will automatically refresh to show the updated plan.",
+        `Submit a new version of the plan.
+Only call when ALL comments are clear (no pending questions).
+
+Provide resolvedComments to mark which comments were addressed.
+After calling this, status changes to 'revised' and user can review.`,
         {
             reviewId: z.string().describe("The ID of the review to update."),
             newContent: z.string().describe("The updated plan content in Markdown format."),
-            changeDescription: z.string().optional().describe("A brief description of the changes made (e.g., 'Added error handling section').")
+            changeDescription: z.string().optional().describe("A brief description of the changes made."),
+            resolvedComments: z.array(z.object({
+                commentId: z.string().describe("The ID of the resolved comment."),
+                resolution: z.string().describe("Explanation of how this comment was addressed.")
+            })).optional().describe("Array of comments that were addressed in this update.")
         },
-        async ({ reviewId, newContent, changeDescription }) => {
+        async ({ reviewId, newContent, changeDescription, resolvedComments }) => {
             logger.info(`Tool called: update_plan (reviewId: ${reviewId})`);
 
             const review = await this.reviewManager.getReview(reviewId);
             if (!review) {
                 logger.warn(`update_plan: Review ${reviewId} not found`);
                 return {
-                    content: [{ type: "text", text: `Error: Review ${reviewId} not found.` }]
+                    content: [{ type: "text", text: JSON.stringify({
+                        success: false,
+                        error: `Review ${reviewId} not found.`
+                    }) }]
                 };
             }
 
@@ -125,25 +251,36 @@ export class McpService {
                     newContent,
                     {
                         changeDescription,
-                        author: 'agent'
+                        author: 'agent',
+                        resolvedComments
                     }
                 );
 
                 const versionCount = updatedReview.documentVersions.length;
                 const newVersionHash = updatedReview.currentVersion.substring(0, 8);
+                const resolvedCount = resolvedComments?.length || 0;
 
-                logger.info(`update_plan: Created version ${newVersionHash} for review ${reviewId}`);
+                logger.info(`update_plan: Created version ${newVersionHash} for review ${reviewId}, resolved ${resolvedCount} comments`);
 
                 return {
-                    content: [{
-                        type: "text",
-                        text: `Plan updated successfully!\n\n- Review ID: ${reviewId}\n- New version: ${newVersionHash}\n- Total versions: ${versionCount}\n- Change: ${changeDescription || 'No description'}\n\nThe user's browser will automatically refresh to show the updated plan.`
-                    }]
+                    content: [{ type: "text", text: JSON.stringify({
+                        success: true,
+                        reviewId,
+                        status: updatedReview.status,
+                        newVersion: newVersionHash,
+                        totalVersions: versionCount,
+                        resolvedCommentsCount: resolvedCount,
+                        changeDescription: changeDescription || 'No description',
+                        message: "Plan updated successfully. User's browser will refresh to show the new version."
+                    }) }]
                 };
             } catch (e: any) {
                 logger.error(`update_plan failed: ${e.message}`);
                 return {
-                    content: [{ type: "text", text: `Error updating plan: ${e.message}` }]
+                    content: [{ type: "text", text: JSON.stringify({
+                        success: false,
+                        error: e.message
+                    }) }]
                 };
             }
         }

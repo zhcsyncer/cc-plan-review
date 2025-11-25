@@ -1,15 +1,22 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import PlanViewer from './components/PlanViewer.vue';
 import ReviewSidebar from './components/ReviewSidebar.vue';
 import VersionPanel from './components/VersionPanel.vue';
 import DiffViewer from './components/DiffViewer.vue';
+import { useSSE, type ReviewStatus, type StatusChangedData, type VersionUpdatedData, type QuestionsUpdatedData } from './composables/useSSE';
 
 interface TextPosition {
   startOffset: number;
   endOffset: number;
   startLine?: number;
   endLine?: number;
+}
+
+interface CommentQuestion {
+  type: 'clarification' | 'choice' | 'accepted';
+  message: string;
+  options?: string[];
 }
 
 interface Comment {
@@ -19,6 +26,9 @@ interface Comment {
   position: TextPosition;
   documentVersion: string;
   positionStatus: 'valid' | 'adjusted' | 'stale';
+  question?: CommentQuestion;
+  answer?: string;
+  resolved: boolean;
 }
 
 interface CommentRequest {
@@ -60,7 +70,7 @@ const reviewId = ref<string>('');
 const planContent = ref<string>('');
 const comments = ref<Comment[]>([]);
 const loading = ref(true);
-const submitted = ref(false);
+const reviewStatus = ref<ReviewStatus>('pending');
 const error = ref('');
 const activeCommentId = ref<string | null>(null);
 
@@ -75,9 +85,28 @@ const selectedVersion = ref<string>('');
 const showDiff = ref(false);
 const diffData = ref<DiffResult | null>(null);
 
-// 轮询定时器
-let pollInterval: number | null = null;
-const POLL_INTERVAL_MS = 3000; // 3秒
+// SSE 连接状态
+const sseConnected = ref(false);
+
+// 计算属性：是否为只读模式
+const isReadOnly = computed(() => {
+  return reviewStatus.value === 'submitted_feedback' || reviewStatus.value === 'approved';
+});
+
+// 计算属性：是否显示已提交界面
+const showSubmittedView = computed(() => {
+  return reviewStatus.value === 'approved';
+});
+
+// 计算属性：是否处于等待 Agent 状态
+const isWaitingForAgent = computed(() => {
+  return reviewStatus.value === 'submitted_feedback';
+});
+
+// 计算属性：是否有待回答的问题
+const hasQuestionsToAnswer = computed(() => {
+  return reviewStatus.value === 'questions_pending';
+});
 
 // 主题管理
 const isDark = ref(false);
@@ -116,13 +145,90 @@ const currentPosition = ref<TextPosition | null>(null);
 const currentBoundingRect = ref<DOMRect | null>(null);
 const newCommentText = ref('');
 
+// SSE 回调处理
+function handleSSEConnected(data: { review: any }) {
+  const review = data.review;
+  planContent.value = review.planContent;
+  comments.value = review.comments || [];
+  currentVersionHash.value = review.currentVersion;
+  selectedVersion.value = review.currentVersion;
+  reviewStatus.value = review.status || 'pending';
+
+  if (review.documentVersions) {
+    versions.value = review.documentVersions.map((v: any) => ({
+      versionHash: v.versionHash,
+      createdAt: v.createdAt,
+      changeDescription: v.changeDescription,
+      author: v.author,
+      isCurrent: v.versionHash === review.currentVersion
+    }));
+  }
+
+  sseConnected.value = true;
+  loading.value = false;
+}
+
+function handleSSEStatusChanged(data: StatusChangedData) {
+  reviewStatus.value = data.status;
+  console.log('[App] Status changed:', data.previousStatus, '->', data.status);
+}
+
+function handleSSEVersionUpdated(data: VersionUpdatedData) {
+  // 更新当前版本
+  currentVersionHash.value = data.version.versionHash;
+  planContent.value = data.content;
+  selectedVersion.value = data.version.versionHash;
+
+  // 更新版本列表
+  const existingIndex = versions.value.findIndex(v => v.versionHash === data.version.versionHash);
+  if (existingIndex === -1) {
+    // 新版本，添加到列表
+    versions.value.push({
+      versionHash: data.version.versionHash,
+      createdAt: data.version.createdAt,
+      changeDescription: data.version.changeDescription,
+      author: data.version.author,
+      isCurrent: true
+    });
+  }
+
+  // 更新所有版本的 isCurrent 状态
+  versions.value = versions.value.map(v => ({
+    ...v,
+    isCurrent: v.versionHash === data.version.versionHash
+  }));
+
+  // 标记已解决的 comments
+  for (const rc of data.resolvedComments) {
+    const comment = comments.value.find(c => c.id === rc.commentId);
+    if (comment) {
+      comment.resolved = true;
+    }
+  }
+
+  console.log('[App] Version updated:', data.version.versionHash.substring(0, 8));
+}
+
+function handleSSEQuestionsUpdated(data: QuestionsUpdatedData) {
+  // 更新 comments 的 question 字段
+  for (const q of data.questions) {
+    const comment = comments.value.find(c => c.id === q.commentId);
+    if (comment) {
+      comment.question = q.question;
+      // 如果是 accepted 类型，标记为已解决
+      if (q.question.type === 'accepted') {
+        comment.resolved = true;
+      }
+    }
+  }
+  console.log('[App] Questions updated:', data.questions.length, 'questions');
+}
+
 onMounted(async () => {
   initTheme();
 
   const path = window.location.pathname;
   const parts = path.split('/');
-  // If path is /review/123, parts is ['', 'review', '123']
-  // If path is /review/123/, parts is ['', 'review', '123', '']
   const id = parts.find((p, i) => parts[i-1] === 'review');
 
   if (!id) {
@@ -132,14 +238,17 @@ onMounted(async () => {
   }
   reviewId.value = id;
 
-  try {
-    await fetchReview();
-    // 启动轮询
-    startPolling();
-  } catch (e: any) {
-    error.value = e.message;
-  } finally {
-    loading.value = false;
+  // SSE 会在 useSSE 中自动连接，connected 事件会更新数据
+});
+
+// 初始化 SSE（在 reviewId 设置后）
+const { isConnected: sseIsConnected, disconnect: disconnectSSE } = useSSE(reviewId, {
+  onConnected: handleSSEConnected,
+  onStatusChanged: handleSSEStatusChanged,
+  onVersionUpdated: handleSSEVersionUpdated,
+  onQuestionsUpdated: handleSSEQuestionsUpdated,
+  onError: () => {
+    console.warn('[App] SSE connection error');
   }
 });
 
@@ -149,20 +258,20 @@ onUnmounted(() => {
     clearTimeout(confirmTimer);
     confirmTimer = null;
   }
-  // 清理轮询定时器
-  stopPolling();
+  // SSE 会在 useSSE 的 onUnmounted 中自动断开
 });
 
+// fetchReview 保留用于手动刷新（降级方案）
 async function fetchReview() {
   const res = await fetch(`/api/reviews/${reviewId.value}`);
   if (!res.ok) throw new Error('Review not found');
   const data = await res.json();
   planContent.value = data.planContent;
-  comments.value = data.comments;
+  comments.value = data.comments || [];
   currentVersionHash.value = data.currentVersion;
   selectedVersion.value = data.currentVersion;
+  reviewStatus.value = data.status || 'pending';
 
-  // 获取版本列表
   if (data.documentVersions) {
     versions.value = data.documentVersions.map((v: any) => ({
       versionHash: v.versionHash,
@@ -171,56 +280,6 @@ async function fetchReview() {
       author: v.author,
       isCurrent: v.versionHash === data.currentVersion
     }));
-  }
-
-  if (data.status === 'submitted') {
-    submitted.value = true;
-  }
-}
-
-// 轮询检测更新
-function startPolling() {
-  if (pollInterval) return;
-  pollInterval = window.setInterval(async () => {
-    try {
-      const res = await fetch(`/api/reviews/${reviewId.value}`);
-      if (!res.ok) return;
-      const data = await res.json();
-
-      // 检测到新版本
-      if (data.currentVersion !== currentVersionHash.value) {
-        // 自动刷新数据
-        currentVersionHash.value = data.currentVersion;
-        planContent.value = data.planContent;
-        comments.value = data.comments;
-        selectedVersion.value = data.currentVersion;
-
-        // 更新版本列表
-        if (data.documentVersions) {
-          versions.value = data.documentVersions.map((v: any) => ({
-            versionHash: v.versionHash,
-            createdAt: v.createdAt,
-            changeDescription: v.changeDescription,
-            author: v.author,
-            isCurrent: v.versionHash === data.currentVersion
-          }));
-        }
-      }
-
-      // 检测状态变化
-      if (data.status === 'submitted' && !submitted.value) {
-        submitted.value = true;
-      }
-    } catch (e) {
-      // 轮询失败时静默处理
-    }
-  }, POLL_INTERVAL_MS);
-}
-
-function stopPolling() {
-  if (pollInterval) {
-    clearInterval(pollInterval);
-    pollInterval = null;
   }
 }
 
@@ -374,13 +433,45 @@ async function onSubmitReview() {
   confirmPending.value = false;
 
   try {
-    const res = await fetch(`/api/reviews/${reviewId.value}/submit`, {
-      method: 'POST'
-    });
-    if (!res.ok) throw new Error('Failed');
-    submitted.value = true;
+    // 检查是否有未解决的 comments
+    const unresolvedComments = comments.value.filter(c => !c.resolved);
+
+    if (unresolvedComments.length === 0) {
+      // 无批注或全部已解决，直接通过
+      const res = await fetch(`/api/reviews/${reviewId.value}/approve`, {
+        method: 'POST'
+      });
+      if (!res.ok) throw new Error('Failed to approve');
+    } else {
+      // 有批注，提交反馈
+      const res = await fetch(`/api/reviews/${reviewId.value}/submit-feedback`, {
+        method: 'POST'
+      });
+      if (!res.ok) throw new Error('Failed to submit feedback');
+    }
+    // 状态会通过 SSE 自动更新
   } catch (e) {
     alert('Error submitting review');
+  }
+}
+
+// 回答 Agent 的问题
+async function onAnswerQuestion(commentId: string, answer: string) {
+  try {
+    const res = await fetch(`/api/reviews/${reviewId.value}/comments/${commentId}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer })
+    });
+    if (!res.ok) throw new Error('Failed to submit answer');
+
+    // 更新本地状态
+    const comment = comments.value.find(c => c.id === commentId);
+    if (comment) {
+      comment.answer = answer;
+    }
+  } catch (e) {
+    alert('Error submitting answer');
   }
 }
 
@@ -418,8 +509,18 @@ function onHighlightClick(id: string) {
           <span v-if="isDark" class="text-2xl">☀️</span>
           <span v-else class="text-2xl">🌙</span>
         </button>
-        <div v-if="submitted" class="text-green-600 font-medium flex items-center gap-2">
-          <span>✓ Submitted</span>
+        <!-- 状态指示器 -->
+        <div v-if="reviewStatus === 'approved'" class="text-green-600 font-medium flex items-center gap-2">
+          <span>✓ Approved</span>
+        </div>
+        <div v-else-if="reviewStatus === 'submitted_feedback'" class="text-orange-500 font-medium flex items-center gap-2 animate-pulse">
+          <span>⏳ Waiting for Agent...</span>
+        </div>
+        <div v-else-if="reviewStatus === 'questions_pending'" class="text-purple-600 font-medium flex items-center gap-2">
+          <span>❓ Questions from Agent</span>
+        </div>
+        <div v-else-if="reviewStatus === 'revised'" class="text-blue-600 font-medium flex items-center gap-2">
+          <span>📝 New Revision Available</span>
         </div>
       </div>
     </header>
@@ -434,11 +535,20 @@ function onHighlightClick(id: string) {
         {{ error }}
       </div>
 
-      <div v-else-if="submitted" class="absolute inset-0 flex flex-col items-center justify-center bg-app-surface-light dark:bg-app-surface-dark z-10 space-y-4 transition-colors duration-200">
+      <!-- Approved 状态 -->
+      <div v-else-if="showSubmittedView" class="absolute inset-0 flex flex-col items-center justify-center bg-app-surface-light dark:bg-app-surface-dark z-10 space-y-4 transition-colors duration-200">
         <div class="text-4xl mb-2">🎉</div>
-        <h2 class="text-2xl font-bold text-text-primary-light dark:text-text-primary-dark">Review Submitted!</h2>
+        <h2 class="text-2xl font-bold text-text-primary-light dark:text-text-primary-dark">Plan Approved!</h2>
         <p class="text-text-secondary-light dark:text-text-secondary-dark">You can close this window and return to Claude.</p>
         <p class="text-sm text-text-secondary-light dark:text-text-secondary-dark">Type "continue" in the chat.</p>
+      </div>
+
+      <!-- Waiting for Agent 状态 -->
+      <div v-else-if="isWaitingForAgent" class="absolute inset-0 flex flex-col items-center justify-center bg-app-surface-light dark:bg-app-surface-dark z-10 space-y-4 transition-colors duration-200">
+        <div class="text-4xl mb-2 animate-bounce">⏳</div>
+        <h2 class="text-2xl font-bold text-text-primary-light dark:text-text-primary-dark">Feedback Submitted</h2>
+        <p class="text-text-secondary-light dark:text-text-secondary-dark">Waiting for Agent to process your feedback...</p>
+        <p class="text-sm text-text-secondary-light dark:text-text-secondary-dark">This page will update automatically.</p>
       </div>
 
       <template v-else>
@@ -490,10 +600,14 @@ function onHighlightClick(id: string) {
           <ReviewSidebar
             :comments="comments"
             :confirm-pending="confirmPending"
+            :review-status="reviewStatus"
+            :is-read-only="isReadOnly"
+            :has-questions="hasQuestionsToAnswer"
             @update-comment="onUpdateComment"
             @delete-comment="onDeleteComment"
             @submit-review="onSubmitReview"
             @comment-click="onCommentClick"
+            @answer-question="onAnswerQuestion"
           />
         </div>
       </template>
