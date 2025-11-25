@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Highlight.js 主题（自定义 Claude 风格） */
+@import 'highlight.js/styles/github.css' layer(light-theme);
+@import 'highlight.js/styles/github-dark.css' layer(dark-theme);
+
+/* 根据主题切换代码高亮样式 */
+@layer light-theme {
+  :root:not(.dark) .hljs {
+    background: #f0f0f0 !important;
+    color: #3c3c3c !important;
+  }
+}
+
+@layer dark-theme {
+  :root.dark .hljs {
+    background: #2d2d2d !important;
+    color: #d4d4d4 !important;
+  }
+}
+
+/* 评论高亮样式 (mark.js) */
+.comment-highlight {
+  background-color: rgba(124, 58, 237, 0.15);
+  padding: 2px 0;
+  transition: background-color 0.2s ease;
+  cursor: pointer;
+  color: inherit;
+  user-select: none;
+}
+
+.comment-highlight:hover {
+  background-color: rgba(124, 58, 237, 0.25);
+}
+
+/* 激活状态的评论高亮 */
+.comment-highlight.active {
+  background-color: rgba(124, 58, 237, 0.3);
+  border-bottom: 2px solid rgba(124, 58, 237, 0.6);
+}
+
+.comment-highlight.active:hover {
+  background-color: rgba(124, 58, 237, 0.35);
+}
+
+/* 暗色主题高亮 */
+:root.dark .comment-highlight {
+  background-color: rgba(139, 92, 246, 0.4);
+}
+
+:root.dark .comment-highlight:hover {
+  background-color: rgba(139, 92, 246, 0.5);
+}
+
+:root.dark .comment-highlight.active {
+  background-color: rgba(139, 92, 246, 0.55);
+  border-bottom-color: rgba(139, 92, 246, 0.8);
+}
+
+:root.dark .comment-highlight.active:hover {
+  background-color: rgba(139, 92, 246, 0.6);
+}
+
+/* Mermaid 图表样式调整 */
+.mermaid {
+  text-align: center;
+  margin: 2rem 0;
+}
+
+.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}

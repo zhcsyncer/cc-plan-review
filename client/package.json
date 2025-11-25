@@ -1,0 +1,26 @@
+{
+  "name": "client",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "rsbuild dev",
+    "build": "rsbuild build",
+    "preview": "rsbuild preview"
+  },
+  "dependencies": {
+    "highlight.js": "11.11.1",
+    "lucide-vue-next": "^0.344.0",
+    "mark.js": "8.11.1",
+    "marked": "^12.0.0",
+    "mermaid": "11.12.1",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@rsbuild/core": "^0.6.0",
+    "@rsbuild/plugin-vue": "^0.6.0",
+    "@types/mark.js": "8.11.12",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0"
+  }
+}
