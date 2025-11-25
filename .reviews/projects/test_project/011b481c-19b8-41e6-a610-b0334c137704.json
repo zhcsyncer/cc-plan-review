@@ -1,0 +1,17 @@
+{
+  "id": "011b481c-19b8-41e6-a610-b0334c137704",
+  "createdAt": 1764079759642,
+  "status": "approved",
+  "planContent": "# Test Plan\n\n这是一个测试计划\n\n## 步骤\n\n1. 第一步\n2. 第二步",
+  "comments": [],
+  "documentVersions": [
+    {
+      "versionHash": "86d73b09c1e0a586885e7220c92ad08d6f7dc20ecc18fc07e4b72278391438ac",
+      "content": "# Test Plan\n\n这是一个测试计划\n\n## 步骤\n\n1. 第一步\n2. 第二步",
+      "createdAt": 1764079759642
+    }
+  ],
+  "currentVersion": "86d73b09c1e0a586885e7220c92ad08d6f7dc20ecc18fc07e4b72278391438ac",
+  "projectPath": "/test/project",
+  "approvedDirectly": true
+}

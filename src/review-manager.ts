@@ -17,6 +17,19 @@ try {
     logger.debug(`Data directory already exists at ${DATA_DIR}`);
 }
 
+// 项目路径编码函数
+function encodeProjectPath(projectPath: string): string {
+  return projectPath
+    .replace(/^\//, '')      // 移除开头的 /
+    .replace(/\//g, '_')     // 替换 / 为 _
+    .replace(/:/g, '_');     // 替换 : 为 _ (Windows 盘符)
+}
+
+function getProjectDataDir(projectPath: string): string {
+  const encoded = encodeProjectPath(projectPath);
+  return path.join(DATA_DIR, 'projects', encoded);
+}
+
 // 位置信息接口
 export interface TextPosition {
   startOffset: number;      // 选中文本的起始字符偏移量
@@ -125,6 +138,10 @@ export interface Review {
   // 版本管理
   documentVersions: DocumentVersion[];  // 文档版本历史
   currentVersion: string;               // 当前版本哈希
+
+  // 项目隔离
+  projectPath?: string;                 // 关联的项目路径
+  approvedDirectly?: boolean;           // 是否直接批准（无评论）
 }
 
 export class ReviewManager {
@@ -133,8 +150,18 @@ export class ReviewManager {
     return createHash('sha256').update(content, 'utf-8').digest('hex');
   }
 
+  // 确保项目数据目录存在
+  private async ensureProjectDir(projectPath: string): Promise<string> {
+    const dir = getProjectDataDir(projectPath);
+    await fs.mkdir(dir, { recursive: true });
+    return dir;
+  }
+
   async _save(review: Review): Promise<void> {
-    const filePath = path.join(DATA_DIR, `${review.id}.json`);
+    const dir = review.projectPath
+      ? await this.ensureProjectDir(review.projectPath)
+      : DATA_DIR;
+    const filePath = path.join(dir, `${review.id}.json`);
     await fs.writeFile(
       filePath,
       JSON.stringify(review, null, 2)
@@ -142,19 +169,59 @@ export class ReviewManager {
     logger.debug(`Saved review ${review.id} to ${filePath}`);
   }
 
-  async getReview(id: string): Promise<Review | null> {
+  async getReview(id: string, projectPath?: string): Promise<Review | null> {
+    // 在指定项目目录查找
+    if (projectPath) {
+      const dir = getProjectDataDir(projectPath);
+      try {
+        const data = await fs.readFile(path.join(dir, `${id}.json`), 'utf-8');
+        return JSON.parse(data) as Review;
+      } catch (e) {
+        logger.warn(`Failed to load review ${id} from project ${projectPath}: ${(e as Error).message}`);
+        return null;
+      }
+    }
+
+    // 在全局目录查找
     try {
       const data = await fs.readFile(path.join(DATA_DIR, `${id}.json`), 'utf-8');
       return JSON.parse(data) as Review;
-    } catch (e) {
-      logger.warn(`Failed to load review ${id}: ${(e as Error).message}`);
-      return null;
+    } catch {
+      // 继续搜索项目目录
     }
+
+    // 搜索所有项目目录
+    try {
+      const projectsDir = path.join(DATA_DIR, 'projects');
+      const projects = await fs.readdir(projectsDir);
+      for (const project of projects) {
+        try {
+          const filePath = path.join(projectsDir, project, `${id}.json`);
+          const data = await fs.readFile(filePath, 'utf-8');
+          return JSON.parse(data) as Review;
+        } catch {
+          // 继续搜索下一个项目
+        }
+      }
+    } catch {
+      // projects 目录不存在
+    }
+
+    logger.warn(`Failed to load review ${id}: not found in any location`);
+    return null;
   }
 
-  async getLatestReview(): Promise<Review | null> {
+  async getLatestReview(projectPath?: string): Promise<Review | null> {
+    const searchDir = projectPath ? getProjectDataDir(projectPath) : DATA_DIR;
+
     try {
-      const files = await fs.readdir(DATA_DIR);
+      await fs.access(searchDir);
+    } catch {
+      return null;
+    }
+
+    try {
+      const files = await fs.readdir(searchDir);
       const jsonFiles = files.filter(f => f.endsWith('.json'));
 
       if (jsonFiles.length === 0) return null;
@@ -163,7 +230,7 @@ export class ReviewManager {
       let maxTime = 0;
 
       for (const file of jsonFiles) {
-        const stats = await fs.stat(path.join(DATA_DIR, file));
+        const stats = await fs.stat(path.join(searchDir, file));
         if (stats.mtimeMs > maxTime) {
           maxTime = stats.mtimeMs;
           latestFile = file;
@@ -171,17 +238,17 @@ export class ReviewManager {
       }
 
       if (!latestFile) return null;
-      return this.getReview(latestFile.replace('.json', ''));
+      return this.getReview(latestFile.replace('.json', ''), projectPath);
     } catch (e) {
       logger.error("Error getting latest review:", e);
       return null;
     }
   }
 
-  async createReview(plan: string): Promise<Review> {
+  async createReview(plan: string, projectPath?: string): Promise<Review> {
     const id = randomUUID();
     const versionHash = this.calculateContentHash(plan);
-    logger.info(`Creating new review with ID: ${id}, version: ${versionHash}`);
+    logger.info(`Creating new review with ID: ${id}, version: ${versionHash}, project: ${projectPath || 'global'}`);
 
     const initialVersion: DocumentVersion = {
       versionHash,
@@ -196,7 +263,8 @@ export class ReviewManager {
       planContent: plan,
       comments: [],
       documentVersions: [initialVersion],
-      currentVersion: versionHash
+      currentVersion: versionHash,
+      projectPath
     };
     await this._save(review);
     return review;

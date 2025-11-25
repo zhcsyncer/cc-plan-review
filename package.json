@@ -16,16 +16,22 @@
   },
   "files": [
     "dist",
-    "client/dist"
+    "client/dist",
+    ".claude-plugin",
+    ".mcp.json",
+    "hooks"
   ],
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && npm run build:client",
-    "prepublishOnly": "npm run build",
-    "start": "node dist/index.js",
-    "build:client": "cd client && pnpm install && pnpm run build"
+    "build": "pnpm run build:server && pnpm run build:scripts && pnpm run build:client && pnpm run copy:hooks",
+    "build:server": "tsc",
+    "build:scripts": "tsc -p scripts/tsconfig.json",
+    "build:client": "cd client && pnpm install && pnpm run build",
+    "copy:hooks": "cp -r hooks dist/",
+    "prepublishOnly": "pnpm run build",
+    "start": "node dist/index.js"
   },
   "keywords": [
     "mcp",

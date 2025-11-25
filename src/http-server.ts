@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import { AddressInfo } from "net";
+import open from "open";
 import { ReviewManager } from "./review-manager.js";
 import { McpService } from "./mcp-server.js";
 import { logger } from "./logger.js";
@@ -11,16 +12,22 @@ import { reviewEventBus } from "./event-bus.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+export interface HttpServerOptions {
+  enableMcpEndpoint?: boolean;  // 是否启用 /mcp 端点，默认 true
+}
+
 export class HttpServer {
   private app: express.Express;
   private reviewManager: ReviewManager;
   private mcpService: McpService;
   private serverInstance: any;
+  private options: HttpServerOptions;
   public port: number = 0;
 
-  constructor(reviewManager: ReviewManager, mcpService: McpService) {
+  constructor(reviewManager: ReviewManager, mcpService: McpService, options?: HttpServerOptions) {
     this.reviewManager = reviewManager;
     this.mcpService = mcpService;
+    this.options = { enableMcpEndpoint: true, ...options };
     this.app = express();
     this.setupMiddleware();
     this.setupRoutes();
@@ -44,6 +51,43 @@ export class HttpServer {
   }
 
   private setupRoutes() {
+    // Create Review via API (for hook script)
+    this.app.post("/api/reviews", async (req: Request, res: Response) => {
+      try {
+        const { plan, projectPath } = req.body;
+        if (!plan) {
+          res.status(400).json({ error: "Missing 'plan' field" });
+          return;
+        }
+
+        const review = await this.reviewManager.createReview(plan, projectPath);
+
+        // 自动打开浏览器
+        const url = `http://localhost:${this.port}/review/${review.id}`;
+        try {
+          await open(url);
+          logger.info(`Opened browser at ${url}`);
+        } catch (e) {
+          logger.warn(`Failed to open browser: ${(e as Error).message}`);
+        }
+
+        res.json(review);
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Get Latest Review (for hook script)
+    this.app.get("/api/reviews/latest", async (req: Request, res: Response) => {
+      const projectPath = req.query.project as string | undefined;
+      const review = await this.reviewManager.getLatestReview(projectPath);
+      if (!review) {
+        res.status(404).json({ error: "No active review" });
+        return;
+      }
+      res.json(review);
+    });
+
     // Get Review Data
     this.app.get("/api/reviews/:id", async (req: Request, res: Response) => {
       const review = await this.reviewManager.getReview(req.params.id);
@@ -270,23 +314,31 @@ export class HttpServer {
       }
     });
 
-    // Approve Review (无批注或接受修改)
+    // Approve Review (直接批准，忽略状态验证)
     this.app.post("/api/reviews/:id/approve", async (req: Request, res: Response) => {
       try {
         const review = await this.reviewManager.getReview(req.params.id);
-        const previousStatus = review?.status;
-
-        const updatedReview = await this.reviewManager.approveReview(req.params.id);
-
-        // 触发状态变更事件
-        if (previousStatus && previousStatus !== updatedReview.status) {
-          reviewEventBus.emitStatusChanged(req.params.id, updatedReview.status, previousStatus);
+        if (!review) {
+          res.status(404).json({ error: "Review not found" });
+          return;
         }
 
-        res.json({ status: "ok", reviewStatus: updatedReview.status });
+        const previousStatus = review.status;
+
+        // 直接设置为 approved 状态，忽略状态验证
+        review.status = 'approved';
+        review.approvedDirectly = true;
+        await this.reviewManager._save(review);
+
+        // 触发状态变更事件
+        if (previousStatus !== review.status) {
+          reviewEventBus.emitStatusChanged(req.params.id, review.status, previousStatus);
+        }
+
+        logger.info(`Review ${req.params.id} approved directly`);
+        res.json({ status: "ok", reviewStatus: review.status });
       } catch (e: any) {
-        const statusCode = e.message.includes('not found') ? 404 : 400;
-        res.status(statusCode).json({ error: e.message });
+        res.status(500).json({ error: e.message });
       }
     });
 
@@ -354,10 +406,12 @@ export class HttpServer {
       }
     });
 
-    // MCP Streamable HTTP Endpoint
-    this.app.post("/mcp", async (req: Request, res: Response) => {
-      await this.mcpService.handleRequest(req, res);
-    });
+    // MCP Streamable HTTP Endpoint (仅在 HTTP 传输模式下启用)
+    if (this.options.enableMcpEndpoint) {
+      this.app.post("/mcp", async (req: Request, res: Response) => {
+        await this.mcpService.handleRequest(req, res);
+      });
+    }
 
     // SPA Fallback
     this.app.get(/^\/review(\/.*)?$/, (req: Request, res: Response) => {

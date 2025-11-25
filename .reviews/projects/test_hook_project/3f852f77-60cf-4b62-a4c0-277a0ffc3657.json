@@ -1,0 +1,16 @@
+{
+  "id": "3f852f77-60cf-4b62-a4c0-277a0ffc3657",
+  "createdAt": 1764080004206,
+  "status": "pending",
+  "planContent": "# Hook Test Plan\n\n测试 Hook 脚本",
+  "comments": [],
+  "documentVersions": [
+    {
+      "versionHash": "bec24b3bb93ebdc2d6f164a195db2ea73c65f57f3b7df49cfc034dd064ed07d9",
+      "content": "# Hook Test Plan\n\n测试 Hook 脚本",
+      "createdAt": 1764080004206
+    }
+  ],
+  "currentVersion": "bec24b3bb93ebdc2d6f164a195db2ea73c65f57f3b7df49cfc034dd064ed07d9",
+  "projectPath": "/test/hook/project"
+}

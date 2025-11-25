@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}dist/scripts/intercept-plan.js",
+            "timeout": 600
+          }
+        ]
+      }
+    ]
+  }
+}
