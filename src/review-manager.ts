@@ -43,6 +43,7 @@ export interface VersionSummary {
   changeDescription?: string;
   author?: 'human' | 'agent';
   isCurrent: boolean;
+  hasSameContent: boolean;  // 内容是否与当前版本相同
 }
 
 // Diff 行接口
@@ -473,12 +474,18 @@ export class ReviewManager {
 
   // 获取版本列表（不含内容，用于列表展示）
   getVersionList(review: Review): VersionSummary[] {
+    const currentVersion = review.documentVersions.find(
+      v => v.versionHash === review.currentVersion
+    );
+    const currentContent = currentVersion?.content || '';
+
     return review.documentVersions.map(v => ({
       versionHash: v.versionHash,
       createdAt: v.createdAt,
       changeDescription: v.changeDescription,
       author: v.author,
-      isCurrent: v.versionHash === review.currentVersion
+      isCurrent: v.versionHash === review.currentVersion,
+      hasSameContent: v.content === currentContent
     }));
   }
 

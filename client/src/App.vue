@@ -46,6 +46,7 @@ interface VersionSummary {
   changeDescription?: string;
   author?: 'human' | 'agent';
   isCurrent: boolean;
+  hasSameContent: boolean;
 }
 
 interface DiffLine {
@@ -155,12 +156,16 @@ function handleSSEConnected(data: { review: any }) {
   reviewStatus.value = review.status || 'pending';
 
   if (review.documentVersions) {
+    const currentContent = review.documentVersions.find(
+      (v: any) => v.versionHash === review.currentVersion
+    )?.content || '';
     versions.value = review.documentVersions.map((v: any) => ({
       versionHash: v.versionHash,
       createdAt: v.createdAt,
       changeDescription: v.changeDescription,
       author: v.author,
-      isCurrent: v.versionHash === review.currentVersion
+      isCurrent: v.versionHash === review.currentVersion,
+      hasSameContent: v.content === currentContent
     }));
   }
 
@@ -173,30 +178,38 @@ function handleSSEStatusChanged(data: StatusChangedData) {
   console.log('[App] Status changed:', data.previousStatus, '->', data.status);
 }
 
-function handleSSEVersionUpdated(data: VersionUpdatedData) {
+async function handleSSEVersionUpdated(data: VersionUpdatedData) {
   // 更新当前版本
   currentVersionHash.value = data.version.versionHash;
   planContent.value = data.content;
   selectedVersion.value = data.version.versionHash;
 
-  // 更新版本列表
-  const existingIndex = versions.value.findIndex(v => v.versionHash === data.version.versionHash);
-  if (existingIndex === -1) {
-    // 新版本，添加到列表
-    versions.value.push({
-      versionHash: data.version.versionHash,
-      createdAt: data.version.createdAt,
-      changeDescription: data.version.changeDescription,
-      author: data.version.author,
-      isCurrent: true
-    });
+  // 重新获取版本列表（以便正确计算 hasSameContent）
+  try {
+    const res = await fetch(`/api/reviews/${reviewId.value}/versions`);
+    if (res.ok) {
+      const versionData = await res.json();
+      versions.value = versionData.versions;
+    }
+  } catch {
+    // 获取失败时，使用简化的本地更新
+    const existingIndex = versions.value.findIndex(v => v.versionHash === data.version.versionHash);
+    if (existingIndex === -1) {
+      versions.value.push({
+        versionHash: data.version.versionHash,
+        createdAt: data.version.createdAt,
+        changeDescription: data.version.changeDescription,
+        author: data.version.author,
+        isCurrent: true,
+        hasSameContent: true
+      });
+    }
+    versions.value = versions.value.map(v => ({
+      ...v,
+      isCurrent: v.versionHash === data.version.versionHash,
+      hasSameContent: v.versionHash === data.version.versionHash ? true : v.hasSameContent
+    }));
   }
-
-  // 更新所有版本的 isCurrent 状态
-  versions.value = versions.value.map(v => ({
-    ...v,
-    isCurrent: v.versionHash === data.version.versionHash
-  }));
 
   // 标记已解决的 comments
   for (const rc of data.resolvedComments) {
@@ -273,12 +286,16 @@ async function fetchReview() {
   reviewStatus.value = data.status || 'pending';
 
   if (data.documentVersions) {
+    const currentContent = data.documentVersions.find(
+      (v: any) => v.versionHash === data.currentVersion
+    )?.content || '';
     versions.value = data.documentVersions.map((v: any) => ({
       versionHash: v.versionHash,
       createdAt: v.createdAt,
       changeDescription: v.changeDescription,
       author: v.author,
-      isCurrent: v.versionHash === data.currentVersion
+      isCurrent: v.versionHash === data.currentVersion,
+      hasSameContent: v.content === currentContent
     }));
   }
 }

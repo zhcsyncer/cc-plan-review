@@ -8,6 +8,7 @@ interface VersionSummary {
   changeDescription?: string;
   author?: 'human' | 'agent';
   isCurrent: boolean;
+  hasSameContent: boolean;
 }
 
 const props = defineProps<{
@@ -167,6 +168,7 @@ function handleRollback(version: VersionSummary) {
                 <GitCompare :size="14" />
               </button>
               <button
+                v-if="!version.hasSameContent"
                 @click.stop="handleRollback(version)"
                 class="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-text-secondary-light dark:text-text-secondary-dark hover:text-claude-primary dark:hover:text-claude-primary-dark transition-colors"
                 title="Rollback to this version"
