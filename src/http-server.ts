@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { AddressInfo } from "net";
 import { ReviewManager } from "./review-manager.js";
+import { McpService } from "./mcp-server.js";
 import { logger } from "./logger.js";
 import { sseManager } from "./sse-manager.js";
 import { reviewEventBus } from "./event-bus.js";
@@ -13,11 +14,13 @@ const __dirname = path.dirname(__filename);
 export class HttpServer {
   private app: express.Express;
   private reviewManager: ReviewManager;
+  private mcpService: McpService;
   private serverInstance: any;
   public port: number = 0;
 
-  constructor(reviewManager: ReviewManager) {
+  constructor(reviewManager: ReviewManager, mcpService: McpService) {
     this.reviewManager = reviewManager;
+    this.mcpService = mcpService;
     this.app = express();
     this.setupMiddleware();
     this.setupRoutes();
@@ -351,15 +354,9 @@ export class HttpServer {
       }
     });
 
-    // Submit Review (兼容旧接口，废弃)
-    this.app.post("/api/reviews/:id/submit", async (req: Request, res: Response) => {
-      try {
-        logger.warn(`Deprecated: /api/reviews/:id/submit called, use submit-feedback or approve instead`);
-        await this.reviewManager.submitReview(req.params.id);
-        res.json({ status: "ok" });
-      } catch (e: any) {
-        res.status(404).json({ error: e.message });
-      }
+    // MCP Streamable HTTP Endpoint
+    this.app.post("/mcp", async (req: Request, res: Response) => {
+      await this.mcpService.handleRequest(req, res);
     });
 
     // SPA Fallback

@@ -392,12 +392,6 @@ export class ReviewManager {
     return comment;
   }
 
-  // 兼容旧接口（废弃）
-  async submitReview(reviewId: string): Promise<Review> {
-    logger.warn(`submitReview is deprecated, use submitFeedback or approveReview instead`);
-    return this.submitFeedback(reviewId);
-  }
-
   // 更新 Plan 内容并创建新版本
   async updatePlanContent(
     reviewId: string,

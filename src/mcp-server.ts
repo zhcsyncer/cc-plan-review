@@ -1,9 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import open from "open";
 import { ReviewManager } from "./review-manager.js";
 import { logger } from "./logger.js";
+import type { Request, Response } from "express";
 
 export class McpService {
   private server: McpServer;
@@ -287,9 +288,28 @@ After calling this, status changes to 'revised' and user can review.`,
     );
   }
 
-  async start() {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    logger.info("MCP Server started and connected to stdio");
+  async handleRequest(req: Request, res: Response) {
+    try {
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,  // 无状态模式
+        enableJsonResponse: true
+      });
+
+      res.on('close', () => {
+        transport.close();
+      });
+
+      await this.server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      logger.error(`MCP request error: ${(error as Error).message}`);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          error: { code: -32603, message: 'Internal server error' },
+          id: null
+        });
+      }
+    }
   }
 }

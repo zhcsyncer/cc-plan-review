@@ -17,17 +17,20 @@ async function main() {
     // 1. Services Initialization
     const reviewManager = new ReviewManager();
 
-    // 2. HTTP Server Initialization
-    const httpServer = new HttpServer(reviewManager);
-    const port = await httpServer.start();
-
-    // 3. MCP Server Initialization
+    // 2. MCP Service Initialization (port 将在 HTTP 启动后更新)
+    let port = 3030;
     const mcpService = new McpService(reviewManager, () => {
       return `http://localhost:${port}`;
     });
-    await mcpService.start();
 
+    // 3. HTTP Server Initialization (包含 MCP 端点)
+    const httpServer = new HttpServer(reviewManager, mcpService);
+    port = await httpServer.start();
+
+    logger.info(`MCP endpoint available at http://localhost:${port}/mcp`);
     logger.info("Claude Reviewer Server is fully operational.");
+    logger.info(`To add this MCP server to Claude Code, run:`);
+    logger.info(`  claude mcp add --transport http cc-plan-review http://localhost:${port}/mcp`);
 
     // Handle graceful shutdown
     process.on('SIGINT', () => {
