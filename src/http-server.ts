@@ -11,7 +11,7 @@ import { reviewEventBus } from "./event-bus.js";
 // 获取当前目录（兼容 CJS 打包）
 // 使用 path.resolve 确保是绝对路径，避免 sendFile 出错
 const currentDir = path.resolve(typeof __dirname !== 'undefined' ? __dirname : path.dirname(new URL(import.meta.url).pathname));
-
+logger.info(`=====> Current directory: ${currentDir}`);
 export interface HttpServerOptions {
   enableMcpEndpoint?: boolean;  // 是否启用 /mcp 端点，默认 true
   idleTimeoutMs?: number;       // 空闲超时时间（毫秒），0 表示禁用，默认 30 分钟
