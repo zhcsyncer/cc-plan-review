@@ -33868,15 +33868,20 @@ var Logger = class {
 var logger = new Logger(process.env.DEBUG ? 0 /* DEBUG */ : 1 /* INFO */);
 
 // src/review-manager.ts
-var DATA_DIR = import_path.default.join(import_os.default.homedir(), ".claude", "cc-plan-review", "reviews");
+var BASE_DIR = import_path.default.join(import_os.default.homedir(), ".claude", "cc-plan-review");
+var DATA_DIR = import_path.default.join(BASE_DIR, "reviews");
+var LOGS_DIR = import_path.default.join(BASE_DIR, "logs");
 var dataDirectoryInitialized = false;
 async function ensureDataDirectory() {
   if (dataDirectoryInitialized) return;
   try {
-    await import_promises.default.mkdir(DATA_DIR, { recursive: true });
-    logger.info(`Data directory initialized at ${DATA_DIR}`);
+    await Promise.all([
+      import_promises.default.mkdir(LOGS_DIR, { recursive: true }),
+      import_promises.default.mkdir(DATA_DIR, { recursive: true })
+    ]);
+    logger.info(`Data directories initialized at ${BASE_DIR}`);
   } catch (e) {
-    logger.debug(`Data directory already exists at ${DATA_DIR}`);
+    logger.debug(`Data directories already exist at ${BASE_DIR}`);
   }
   dataDirectoryInitialized = true;
 }
@@ -33885,7 +33890,7 @@ function encodeProjectPath(projectPath) {
 }
 function getProjectDataDir(projectPath) {
   const encoded = encodeProjectPath(projectPath);
-  return import_path.default.join(DATA_DIR, "projects", encoded);
+  return import_path.default.join(DATA_DIR, encoded);
 }
 var ReviewManager = class {
   // 计算文档内容的哈希值
@@ -33925,14 +33930,15 @@ var ReviewManager = class {
     } catch {
     }
     try {
-      const projectsDir = import_path.default.join(DATA_DIR, "projects");
-      const projects = await import_promises.default.readdir(projectsDir);
-      for (const project of projects) {
-        try {
-          const filePath = import_path.default.join(projectsDir, project, `${id}.json`);
-          const data = await import_promises.default.readFile(filePath, "utf-8");
-          return JSON.parse(data);
-        } catch {
+      const entries = await import_promises.default.readdir(DATA_DIR, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          try {
+            const filePath = import_path.default.join(DATA_DIR, entry.name, `${id}.json`);
+            const data = await import_promises.default.readFile(filePath, "utf-8");
+            return JSON.parse(data);
+          } catch {
+          }
         }
       }
     } catch {
