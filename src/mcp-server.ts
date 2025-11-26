@@ -1,9 +1,9 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 // import open from "open";  // 已禁用 request_human_review 工具
-import { ReviewManager } from "./review-manager.js";
+import { ReviewManager, type Review } from "./review-manager.js";
 import { logger } from "./logger.js";
 import { reviewEventBus } from "./event-bus.js";
 import type { Request, Response } from "express";
@@ -22,6 +22,7 @@ export class McpService {
       version: "2.0.0",
     });
     this.setupTools();
+    this.setupResources();
   }
 
   private setupTools() {
@@ -264,6 +265,143 @@ This tool will BLOCK until user submits their answers (timeout: 10 minutes).`,
         }
     );
     */
+  }
+
+  /**
+   * 设置 MCP Resources
+   * 提供 review 数据的只读访问
+   *
+   * URI 格式：
+   * - review://project/{encodedProjectPath}/pending - 获取指定项目的 pending reviews
+   * - review://project/{encodedProjectPath}/current - 获取指定项目的 current review
+   * - review://{id} - 获取指定 ID 的 review 详情
+   *
+   * projectPath 编码规则：将路径中的 / 替换为 _，移除开头的 /
+   * 例如：/Users/foo/project -> Users_foo_project
+   */
+  private setupResources() {
+    // 编码项目路径（与 review-manager 中的 encodeProjectPath 保持一致）
+    const encodeProjectPath = (path: string): string => {
+      return path
+        .replace(/^\//, '')      // 移除开头的 /
+        .replace(/\//g, '_')     // 替换 / 为 _
+        .replace(/:/g, '_');     // 替换 : 为 _ (Windows 盘符)
+    };
+
+    // 解码项目路径
+    const decodeProjectPath = (encoded: string): string => {
+      return '/' + encoded.replace(/_/g, '/');
+    };
+
+    // Resource 1: 获取指定项目的所有 pending reviews（摘要列表）
+    this.server.resource(
+      'pending-reviews',
+      new ResourceTemplate('review://project/{projectPath}/pending', { list: undefined }),
+      {
+        description: 'All pending reviews for a specific project. projectPath is URL-encoded (/ replaced with _)',
+        mimeType: 'application/json'
+      },
+      async (uri, { projectPath }) => {
+        const decodedPath = decodeProjectPath(projectPath as string);
+        logger.info(`Resource accessed: review://project/${projectPath}/pending (decoded: ${decodedPath})`);
+        const reviews = await this.reviewManager.getPendingReviews(decodedPath);
+
+        // 返回摘要信息，不包含完整 planContent 以减少体积
+        const summaries = reviews.map(r => ({
+          id: r.id,
+          status: r.status,
+          createdAt: r.createdAt,
+          projectPath: r.projectPath,
+          commentsCount: r.comments.length,
+          unresolvedCount: r.comments.filter(c => !c.resolved).length
+        }));
+
+        return {
+          contents: [{
+            uri: uri.href,
+            mimeType: 'application/json',
+            text: JSON.stringify(summaries, null, 2)
+          }]
+        };
+      }
+    );
+
+    // Resource 2: 获取指定项目的当前/最近 pending review（完整内容）
+    this.server.resource(
+      'current-review',
+      new ResourceTemplate('review://project/{projectPath}/current', { list: undefined }),
+      {
+        description: 'The most recent pending review for a specific project. projectPath is URL-encoded (/ replaced with _)',
+        mimeType: 'application/json'
+      },
+      async (uri, { projectPath }) => {
+        const decodedPath = decodeProjectPath(projectPath as string);
+        logger.info(`Resource accessed: review://project/${projectPath}/current (decoded: ${decodedPath})`);
+        const reviews = await this.reviewManager.getPendingReviews(decodedPath);
+        const current = reviews[0]; // 已按时间倒序排列
+
+        if (!current) {
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify({ message: 'No pending review found for this project' })
+            }]
+          };
+        }
+
+        return {
+          contents: [{
+            uri: uri.href,
+            mimeType: 'application/json',
+            text: JSON.stringify({
+              id: current.id,
+              status: current.status,
+              createdAt: current.createdAt,
+              projectPath: current.projectPath,
+              planContent: current.planContent,
+              comments: current.comments,
+              currentVersion: current.currentVersion
+            }, null, 2)
+          }]
+        };
+      }
+    );
+
+    // Resource 3: 动态获取指定 ID 的 review 详情
+    this.server.resource(
+      'review-detail',
+      new ResourceTemplate('review://{id}', { list: undefined }),
+      {
+        description: 'Detailed information for a specific review by ID',
+        mimeType: 'application/json'
+      },
+      async (uri, { id }) => {
+        const reviewId = id as string;
+        logger.info(`Resource accessed: review://${reviewId}`);
+        const review = await this.reviewManager.getReview(reviewId);
+
+        if (!review) {
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify({ error: `Review ${reviewId} not found` })
+            }]
+          };
+        }
+
+        return {
+          contents: [{
+            uri: uri.href,
+            mimeType: 'application/json',
+            text: JSON.stringify(review, null, 2)
+          }]
+        };
+      }
+    );
+
+    logger.info('MCP Resources registered: review://project/{projectPath}/pending, review://project/{projectPath}/current, review://{id}');
   }
 
   async handleRequest(req: Request, res: Response) {

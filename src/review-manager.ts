@@ -262,6 +262,64 @@ export class ReviewManager {
     }
   }
 
+  /**
+   * 获取所有未完成的 reviews (status !== 'approved')
+   * @param projectPath 可选，指定项目路径过滤
+   * @returns 未完成状态的 reviews 列表，按创建时间倒序排列
+   */
+  async getPendingReviews(projectPath?: string): Promise<Review[]> {
+    await ensureDataDirectory();
+    const searchDir = projectPath ? getProjectDataDir(projectPath) : DATA_DIR;
+
+    try {
+      await fs.access(searchDir);
+    } catch {
+      return [];
+    }
+
+    const results: Review[] = [];
+
+    // 读取指定目录下的 reviews
+    try {
+      const files = await fs.readdir(searchDir);
+      const jsonFiles = files.filter(f => f.endsWith('.json'));
+
+      for (const file of jsonFiles) {
+        try {
+          const data = await fs.readFile(path.join(searchDir, file), 'utf-8');
+          const review = JSON.parse(data) as Review;
+          // 过滤未完成的 reviews
+          if (review.status !== 'approved') {
+            results.push(review);
+          }
+        } catch {
+          // 跳过无效文件
+        }
+      }
+    } catch (e) {
+      logger.error("Error reading reviews directory:", e);
+    }
+
+    // 如果没有指定 projectPath，也搜索项目子目录
+    if (!projectPath) {
+      try {
+        const entries = await fs.readdir(DATA_DIR, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            const decodedPath = '/' + entry.name.replace(/_/g, '/');
+            const projectReviews = await this.getPendingReviews(decodedPath);
+            results.push(...projectReviews);
+          }
+        }
+      } catch {
+        // 目录不存在
+      }
+    }
+
+    // 按创建时间倒序排列
+    return results.sort((a, b) => b.createdAt - a.createdAt);
+  }
+
   async createReview(plan: string, projectPath?: string): Promise<Review> {
     const id = randomUUID();
     const versionHash = this.calculateContentHash(plan);

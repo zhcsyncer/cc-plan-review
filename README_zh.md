@@ -20,13 +20,13 @@
 claude plugin marketplace add zhcsyncer/cc-plan-review
 
 # 安装插件
-claude plugin install cc-plan-review@cc-plan-review-marketplace
+claude plugin install cc-plan-review@cc-collab-plugins
 ```
 
 ### 通过 Claude Code 交互式命令
 ```
 /plugin marketplace add zhcsyncer/cc-plan-review
-/plugin install cc-plan-review@cc-plan-review-marketplace
+/plugin install cc-plan-review@cc-collab-plugins
 ```
 
 或直接使用 `/plugin` 命令进入交互式安装流程。
@@ -64,11 +64,50 @@ ExitPlanMode 调用 → Hook 拦截 → 打开浏览器 → 用户审核 → 返
 ```
 
 ### 2. MCP Server
-提供 4 个审核工具：
-- `request_human_review`：创建审核会话，等待用户反馈
-- `get_review_result`：获取审核状态和反馈评论
-- `ask_questions`：Agent 针对用户评论提出澄清问题
-- `update_plan`：提交修订版本以供重新审核
+提供工具和资源用于审核流程：
+
+**工具 (Tools)：**
+- `ask_questions`：Agent 针对用户评论提出澄清问题或确认接受
+
+**资源 (Resources)：**
+- `review://project/{projectPath}/pending`：获取指定项目的所有待审核 reviews
+- `review://project/{projectPath}/current`：获取指定项目最近的待审核 review
+- `review://{id}`：根据 ID 获取指定 review 详情
+
+## 审核状态流转
+
+```mermaid
+stateDiagram-v2
+    [*] --> open: 创建 Review
+    open --> approved: 直接批准（无评论）
+    open --> changes_requested: 用户提交评论
+
+    changes_requested --> discussing: Agent 提出问题
+    changes_requested --> updated: Agent 提交修订
+
+    discussing --> updated: 用户回答后 Agent 更新
+    discussing --> approved: 问题解决，用户批准
+
+    updated --> changes_requested: 用户继续评论
+    updated --> approved: 用户批准修订
+
+    approved --> [*]
+```
+
+## 注意事项
+
+### 审核通过后的模式切换
+
+当用户在审核界面中批准计划后，插件会向 Claude Code 返回 "approve" 决定。但存在以下已知限制：
+
+**问题**：Hook 返回 `approve` 后，Claude Code 不会自动从 Plan Mode 切换到 Accept Edits Mode。
+
+**解决方法**：批准计划后，用户需要手动：
+1. 等待 Claude 确认批准结果
+2. 使用 `/acceptedits` 命令或在 Claude Code 中切换到 "Auto Accept" 模式
+3. 然后 Claude 才会开始执行已批准的计划
+
+这是 Claude Code hooks 系统的限制，它只能批准/阻止工具调用，无法自动触发模式切换或执行额外命令。
 
 ## 数据持久化
 
