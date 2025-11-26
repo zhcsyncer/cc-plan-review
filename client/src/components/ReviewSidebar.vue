@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { Trash2, Edit2, Check, X } from 'lucide-vue-next';
+import { Trash2, Edit2, Check, X, ChevronDown, ChevronUp } from 'lucide-vue-next';
 import QuestionInput from './QuestionInput.vue';
 
 type ReviewStatus = 'open' | 'changes_requested' | 'discussing' | 'approved' | 'updated';
@@ -20,6 +20,7 @@ interface Comment {
   question?: CommentQuestion;
   answer?: string;
   resolved: boolean;
+  isExpanded?: boolean;  // 查看模式下是否展开
 }
 
 const props = defineProps<{
@@ -104,6 +105,29 @@ function saveEdit(c: Comment) {
 function handleAnswerQuestion(commentId: string, answer: string) {
   emit('answer-question', commentId, answer);
 }
+
+// 处理编辑模式快捷键
+function handleEditKeydown(e: KeyboardEvent, c: Comment) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    saveEdit(c);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    cancelEdit(c);
+  }
+}
+
+// textarea 高度自适应
+function autoResize(e: Event) {
+  const textarea = e.target as HTMLTextAreaElement;
+  textarea.style.height = 'auto';
+  textarea.style.height = textarea.scrollHeight + 'px';
+}
+
+// 切换评论展开/收起状态
+function toggleExpand(c: Comment) {
+  c.isExpanded = !c.isExpanded;
+}
 </script>
 
 <template>
@@ -143,7 +167,18 @@ function handleAnswerQuestion(commentId: string, answer: string) {
 
         <!-- Content -->
         <div v-if="!c.isEditing">
-          <div class="text-sm text-text-primary-light dark:text-text-primary-dark mb-2">{{ c.comment }}</div>
+          <div
+            class="text-sm text-text-primary-light dark:text-text-primary-dark mb-2 cursor-pointer"
+            :class="{ 'line-clamp-2': !c.isExpanded }"
+            @click.stop="toggleExpand(c)"
+          >
+            {{ c.comment }}
+            <component
+              :is="c.isExpanded ? ChevronUp : ChevronDown"
+              :size="14"
+              class="inline-block ml-1 text-text-secondary-light dark:text-text-secondary-dark align-middle"
+            />
+          </div>
 
           <!-- 编辑/删除按钮（仅非只读模式显示） -->
           <div v-if="!isReadOnly && !c.question" class="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -169,8 +204,10 @@ function handleAnswerQuestion(commentId: string, answer: string) {
         <div v-else @click.stop>
           <textarea
             v-model="c.tempText"
-            class="w-full text-sm border border-border-light dark:border-border-dark rounded p-2 mb-2 focus:ring-2 focus:ring-claude-primary dark:focus:ring-claude-primary-dark outline-none bg-app-surface-light dark:bg-app-surface-dark text-text-primary-light dark:text-text-primary-dark transition-colors duration-200"
-            rows="3"
+            class="w-full text-sm border border-border-light dark:border-border-dark rounded p-2 mb-2 focus:ring-2 focus:ring-claude-primary dark:focus:ring-claude-primary-dark outline-none bg-app-surface-light dark:bg-app-surface-dark text-text-primary-light dark:text-text-primary-dark transition-colors duration-200 min-h-[60px] resize-none"
+            placeholder="Enter comment... (⌘↵ to save, Esc to cancel)"
+            @keydown="handleEditKeydown($event, c)"
+            @input="autoResize"
           ></textarea>
           <div class="flex justify-end gap-2">
              <button @click="cancelEdit(c)" class="p-1 text-text-secondary-light dark:text-text-secondary-dark hover:text-text-primary-light dark:hover:text-text-primary-dark">
