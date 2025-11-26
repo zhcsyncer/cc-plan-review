@@ -5,18 +5,27 @@ import { randomUUID, createHash } from 'crypto';
 import { logger } from './logger.js';
 
 // 全局数据目录，与 Claude Code 配置放在一起
-const DATA_DIR = path.join(os.homedir(), '.claude', 'cc-plan-review', 'reviews');
+const BASE_DIR = path.join(os.homedir(), '.claude', 'cc-plan-review');
+const DATA_DIR = path.join(BASE_DIR, 'reviews');
+const LOGS_DIR = path.join(BASE_DIR, 'logs');
+
+// 导出 LOGS_DIR 供其他模块使用
+export { LOGS_DIR };
 
 // 初始化数据目录（在第一次使用时调用）
 let dataDirectoryInitialized = false;
 async function ensureDataDirectory() {
   if (dataDirectoryInitialized) return;
   try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    logger.info(`Data directory initialized at ${DATA_DIR}`);
+    // 同时创建 logs 和 reviews 子目录
+    await Promise.all([
+      fs.mkdir(LOGS_DIR, { recursive: true }),
+      fs.mkdir(DATA_DIR, { recursive: true })
+    ]);
+    logger.info(`Data directories initialized at ${BASE_DIR}`);
   } catch (e) {
     // ignore if exists
-    logger.debug(`Data directory already exists at ${DATA_DIR}`);
+    logger.debug(`Data directories already exist at ${BASE_DIR}`);
   }
   dataDirectoryInitialized = true;
 }
@@ -31,7 +40,7 @@ function encodeProjectPath(projectPath: string): string {
 
 function getProjectDataDir(projectPath: string): string {
   const encoded = encodeProjectPath(projectPath);
-  return path.join(DATA_DIR, 'projects', encoded);
+  return path.join(DATA_DIR, encoded);
 }
 
 // 位置信息接口
@@ -198,19 +207,20 @@ export class ReviewManager {
 
     // 搜索所有项目目录
     try {
-      const projectsDir = path.join(DATA_DIR, 'projects');
-      const projects = await fs.readdir(projectsDir);
-      for (const project of projects) {
-        try {
-          const filePath = path.join(projectsDir, project, `${id}.json`);
-          const data = await fs.readFile(filePath, 'utf-8');
-          return JSON.parse(data) as Review;
-        } catch {
-          // 继续搜索下一个项目
+      const entries = await fs.readdir(DATA_DIR, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          try {
+            const filePath = path.join(DATA_DIR, entry.name, `${id}.json`);
+            const data = await fs.readFile(filePath, 'utf-8');
+            return JSON.parse(data) as Review;
+          } catch {
+            // 继续搜索下一个项目
+          }
         }
       }
     } catch {
-      // projects 目录不存在
+      // 目录不存在
     }
 
     logger.warn(`Failed to load review ${id}: not found in any location`);
