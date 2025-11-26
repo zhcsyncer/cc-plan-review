@@ -34,6 +34,7 @@ var POLL_INTERVAL = 2e3;
 var MAX_WAIT_TIME = 57e4;
 var SERVER_STARTUP_TIMEOUT = 1e4;
 var DEBUG = process.env.CC_PLAN_REVIEW_DEBUG === "1" || process.env.DEBUG === "1";
+var SESSION_ID = "";
 function isServerRunning() {
   return new Promise((resolve) => {
     const socket = new import_net.default.Socket();
@@ -108,8 +109,13 @@ async function ensureServerRunning() {
 function debug(message, data) {
   if (!DEBUG) return;
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-  const logMessage = data !== void 0 ? `[DEBUG ${timestamp}] ${message}: ${JSON.stringify(data, null, 2)}` : `[DEBUG ${timestamp}] ${message}`;
+  const sessionTag = SESSION_ID ? ` [${SESSION_ID.slice(0, 8)}]` : "";
+  const logMessage = data !== void 0 ? `[DEBUG ${timestamp}]${sessionTag} ${message}: ${JSON.stringify(data, null, 2)}` : `[DEBUG ${timestamp}]${sessionTag} ${message}`;
   console.error(logMessage);
+}
+function respondToAgent(response) {
+  debug(">>> Response to agent", response);
+  console.log(JSON.stringify(response));
 }
 function extractReviewId(planContent) {
   const match = planContent.match(/<!--\s*REVIEW_ID:\s*([a-f0-9-]+)\s*-->/i);
@@ -226,7 +232,9 @@ function waitForReviewWithSSE(reviewId, timeout) {
           if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.slice(6));
-              debug("SSE event received", { type: currentEventType, data });
+              if (currentEventType !== "heartbeat") {
+                debug("SSE event received", { type: currentEventType, data });
+              }
               if (currentEventType === "status_changed" && (data.status === "approved" || data.status === "changes_requested")) {
                 debug(`Review status changed to ${data.status} via SSE`);
                 resolved = true;
@@ -316,6 +324,7 @@ async function main() {
   debug("Received stdin input", { length: inputData.length });
   try {
     const input = JSON.parse(inputData);
+    SESSION_ID = input.session_id || "";
     debug("Parsed hook input", {
       tool_name: input.tool_name,
       hook_event_name: input.hook_event_name,
@@ -325,7 +334,7 @@ async function main() {
     });
     if (input.tool_name !== "ExitPlanMode") {
       debug("Skipping non-ExitPlanMode tool");
-      console.log(JSON.stringify({ decision: "approve" }));
+      respondToAgent({ decision: "approve" });
       process.exit(0);
     }
     const rawPlanContent = input.tool_input?.plan || input.tool_input?.summary || "Plan review requested";
@@ -339,7 +348,7 @@ async function main() {
     if (!serverRunning) {
       debug("HTTP server not available, allowing through");
       console.error("HTTP server not available");
-      console.log(JSON.stringify({ decision: "approve" }));
+      respondToAgent({ decision: "approve" });
       process.exit(0);
     }
     if (existingReviewId) {
@@ -364,7 +373,7 @@ async function main() {
       } catch (error) {
         debug("Failed to create review, allowing through", { error: String(error) });
         console.error(`Failed to create review: ${error}`);
-        console.log(JSON.stringify({ decision: "approve" }));
+        respondToAgent({ decision: "approve" });
         process.exit(0);
       }
     }
@@ -373,15 +382,14 @@ async function main() {
     debug("Review wait completed", { result: result === "timeout" ? "timeout" : { id: result.id, status: result.status } });
     if (result === "timeout") {
       debug("Returning timeout block response");
-      const output = {
+      respondToAgent({
         decision: "block",
         reason: `\u5BA1\u6838\u7B49\u5F85\u8D85\u65F6\uFF08Review ID: ${review.id}\uFF09\u3002
 
 \u5BA1\u6838\u754C\u9762\u5DF2\u5728\u6D4F\u89C8\u5668\u4E2D\u6253\u5F00\u3002\u7528\u6237\u53EF\u80FD\u4ECD\u5728\u5BA1\u6838\u4E2D\u3002
 
 \u8BF7\u544A\u77E5\u7528\u6237\uFF1A\u5B8C\u6210\u5BA1\u6838\u540E\uFF0C\u5728\u7EC8\u7AEF\u8F93\u5165 "continue"\uFF0C\u7136\u540E\u8C03\u7528 get_review_result \u5DE5\u5177\u83B7\u53D6\u5BA1\u6838\u7ED3\u679C\u3002`
-      };
-      console.log(JSON.stringify(output));
+      });
       process.exit(0);
     }
     const reviewResult = result;
@@ -407,15 +415,11 @@ async function main() {
 
 ${reviewResult.planContent}`;
       }
-      const approveResponse = {
-        decision: "approve",
-        reason
-      };
-      console.log(JSON.stringify(approveResponse));
+      respondToAgent({ decision: "approve", reason });
     } else {
       debug("Review has feedback, blocking ExitPlanMode");
       const commentsText = formatComments(reviewResult.comments, reviewResult.planContent || "");
-      const output = {
+      respondToAgent({
         decision: "block",
         reason: `\u7528\u6237\u5BF9\u8BA1\u5212\u6709\u4EE5\u4E0B\u4FEE\u6539\u5EFA\u8BAE\uFF08Review ID: ${reviewResult.id}\uFF09\uFF1A
 
@@ -425,15 +429,14 @@ ${commentsText}
 <!-- REVIEW_ID: ${reviewResult.id} -->
 
 \u7136\u540E\u518D\u6B21\u8C03\u7528 ExitPlanMode \u63D0\u4EA4\u4FEE\u8BA2\u7248\u672C\u3002`
-      };
-      console.log(JSON.stringify(output));
+      });
     }
     debug("Hook script completed successfully");
     process.exit(0);
   } catch (error) {
     debug("Hook error occurred, allowing through", { error: String(error) });
     console.error(`Hook error: ${error}`);
-    console.log(JSON.stringify({ decision: "approve" }));
+    respondToAgent({ decision: "approve" });
     process.exit(0);
   }
 }
