@@ -1,5 +1,7 @@
 # Claude Code 计划审核插件
 
+[English](./README.md) | [中文](./README_zh.md)
+
 一个 Claude Code 插件，为 Plan Mode 提供人工审核能力。插件通过 hooks 拦截 `ExitPlanMode` 调用，在浏览器中打开审核界面，用户可以对 Claude 生成的计划进行批注和反馈。
 
 ## 主要功能
@@ -30,9 +32,18 @@ claude plugin install cc-plan-review@cc-plan-review-marketplace
 或直接使用 `/plugin` 命令进入交互式安装流程。
 
 ### 更新插件
+
+**第一步：更新 marketplace**
 ```bash
 claude plugin marketplace update
 ```
+
+**第二步：通过 Claude Code 更新插件**
+1. 输入 `/plugin` 命令
+2. 选择 `2. Manage and uninstall plugins`
+3. 在 `cc-plan-review` 插件上按 Enter
+4. 再次按 Enter
+5. 选择 `Update now`
 
 ### 从源码安装（开发者）
 ```bash
@@ -54,10 +65,19 @@ ExitPlanMode 调用 → Hook 拦截 → 打开浏览器 → 用户审核 → 返
 
 ### 2. MCP Server
 提供 4 个审核工具：
-- `request_human_review`：创建审核会话
-- `get_review_result`：获取审核状态和反馈
-- `ask_questions`：Agent 提出澄清问题
-- `update_plan`：提交修订版本
+- `request_human_review`：创建审核会话，等待用户反馈
+- `get_review_result`：获取审核状态和反馈评论
+- `ask_questions`：Agent 针对用户评论提出澄清问题
+- `update_plan`：提交修订版本以供重新审核
+
+## 数据持久化
+
+审核数据存储在以下目录：
+```
+~/.cc-plan-review/reviews/
+```
+
+每个审核会话以 JSON 文件形式保存，文件名为审核 ID。
 
 ## 技术栈
 
@@ -72,11 +92,3 @@ pnpm dev            # 监视模式
 pnpm build          # 完整构建（服务器 + 脚本 + 客户端）
 pnpm start          # 启动服务
 ```
-
-## API
-
-- `GET /api/reviews/:id`：获取审核状态
-- `POST /api/reviews/:id/comments`：创建草稿评论
-- `PUT /api/reviews/:id/comments/:commentId`：更新草稿
-- `DELETE /api/reviews/:id/comments/:commentId`：删除草稿
-- `POST /api/reviews/:id/submit`：提交审核

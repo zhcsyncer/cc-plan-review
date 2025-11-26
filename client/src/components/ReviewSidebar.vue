@@ -72,20 +72,13 @@ const allQuestionsAnswered = computed(() => {
 const buttonText = computed(() => {
   if (props.confirmPending) return 'Click Again to Confirm';
 
-  switch (props.reviewStatus) {
-    case 'discussing':
-      return allQuestionsAnswered.value ? 'Submit Answers' : 'Answer All Questions';
-    case 'updated':
-      if (unresolvedComments.value.length > 0) {
-        return props.passThrough ? 'Approve with Suggestions' : 'Submit Feedback';
-      }
-      return 'Approve';
-    default:
-      if (unresolvedComments.value.length > 0) {
-        return props.passThrough ? 'Approve with Suggestions' : 'Submit Feedback';
-      }
-      return 'Approve';
+  // discussing 状态下需要先回答问题
+  if (props.reviewStatus === 'discussing') {
+    return allQuestionsAnswered.value ? 'Submit' : 'Answer All Questions';
   }
+
+  // 统一使用 Submit 作为按钮文案
+  return 'Submit';
 });
 
 const buttonDisabled = computed(() => {

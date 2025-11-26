@@ -492,6 +492,11 @@ function onRequestComment(data: CommentRequest) {
   currentBoundingRect.value = data.boundingRect;
   newCommentText.value = '';
   showCommentModal.value = true;
+
+  // 清除选区状态（让 PlanViewer 的 comment 按钮隐藏）
+  window.getSelection()?.removeAllRanges();
+  hasTextSelection.value = false;
+  selectionData.value = null;
 }
 
 // 选择评论模板
@@ -592,43 +597,27 @@ async function onSubmitReview() {
   confirmPending.value = false;
 
   try {
-    // 检查是否有未解决的 comments
-    const unresolvedComments = comments.value.filter(c => !c.resolved);
     const hasApprovalNote = approvalNote.value.trim();
 
-    if (unresolvedComments.length === 0 && !hasApprovalNote) {
-      // 无批注且无全局意见 → 直接通过
-      const res = await fetch(`/api/reviews/${reviewId.value}/approve`, {
-        method: 'POST'
-      });
-      if (!res.ok) throw new Error('Failed to approve');
-    } else if (passThrough.value) {
-      // PassThrough 模式：有批注但直接通过，评论作为建议传递
-      const body: { note?: string; passThrough: boolean } = { passThrough: true };
-      if (hasApprovalNote) {
-        body.note = hasApprovalNote;
-        approvalNote.value = '';
-      }
-      const res = await fetch(`/api/reviews/${reviewId.value}/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      if (!res.ok) throw new Error('Failed to approve with suggestions');
-    } else {
-      // 有批注或有全局意见 → 请求修改
-      const body: { note?: string } = {};
-      if (hasApprovalNote) {
-        body.note = hasApprovalNote;
-        approvalNote.value = '';  // 清空输入框
-      }
-      const res = await fetch(`/api/reviews/${reviewId.value}/request-changes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      if (!res.ok) throw new Error('Failed to request changes');
+    // 统一使用 /submit 接口
+    const body: { note?: string; passThrough?: boolean } = {};
+
+    if (hasApprovalNote) {
+      body.note = hasApprovalNote;
+      approvalNote.value = '';  // 清空输入框
     }
+
+    if (passThrough.value) {
+      body.passThrough = true;
+    }
+
+    const res = await fetch(`/api/reviews/${reviewId.value}/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok) throw new Error('Failed to submit review');
     // 状态会通过 SSE 自动更新
   } catch (e) {
     alert('Error submitting review');
@@ -827,6 +816,18 @@ onUnmounted(() => {
     <header class="bg-app-surface-light dark:bg-app-surface-dark border-b border-border-light dark:border-border-dark px-6 py-3 shadow-sm flex items-center justify-between transition-colors duration-200">
       <h1 class="font-bold text-lg text-text-primary-light dark:text-text-primary-dark">Claude Plan Review</h1>
       <div class="flex items-center gap-4">
+        <!-- 帮助按钮 -->
+        <button
+          @click="showKeyboardHelp = true"
+          class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-text-secondary-light dark:text-text-secondary-dark hover:text-text-primary-light dark:hover:text-text-primary-dark"
+          title="Keyboard Shortcuts (?)"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+            <path d="M12 17h.01"/>
+          </svg>
+        </button>
         <!-- 设置按钮 -->
         <a
           href="/settings"
