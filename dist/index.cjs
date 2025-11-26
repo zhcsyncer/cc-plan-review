@@ -35435,7 +35435,7 @@ var HttpServer = class {
       });
     }
     this.app.get(/^\/review(\/.*)?$/, (req, res) => {
-      res.sendFile(import_path2.default.join(currentDir, "client/index.html"));
+      res.sendFile("index.html", { root: import_path2.default.join(currentDir, "client") });
     });
   }
   async start() {
