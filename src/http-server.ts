@@ -160,6 +160,8 @@ export class HttpServer {
         const review = await this.reviewManager.getReview(req.params.id);
         const previousStatus = review?.status;
         const previousVersion = review?.currentVersion;
+        // 记录更新前未解决的评论 ID
+        const previousUnresolvedIds = review?.comments.filter(c => !c.resolved).map(c => c.id) || [];
 
         const updatedReview = await this.reviewManager.updatePlanContent(req.params.id, content, {
           changeDescription,
@@ -171,6 +173,11 @@ export class HttpServer {
         if (previousVersion !== updatedReview.currentVersion) {
           const newVersion = updatedReview.documentVersions.find(v => v.versionHash === updatedReview.currentVersion);
           if (newVersion) {
+            // 计算实际被 resolve 的评论（从未解决变为已解决）
+            const actuallyResolved = updatedReview.comments
+              .filter(c => c.resolved && previousUnresolvedIds.includes(c.id))
+              .map(c => ({ commentId: c.id, resolution: c.resolution || '已在修订版本中处理' }));
+
             reviewEventBus.emitVersionUpdated(
               req.params.id,
               {
@@ -180,7 +187,7 @@ export class HttpServer {
                 author: newVersion.author
               },
               newVersion.content,
-              resolvedComments || []
+              actuallyResolved
             );
           }
         }
@@ -294,8 +301,8 @@ export class HttpServer {
       logger.info(`SSE: Client connected for review ${req.params.id}`);
     });
 
-    // Submit Feedback (有批注)
-    this.app.post("/api/reviews/:id/submit-feedback", async (req: Request, res: Response) => {
+    // Request Changes (有批注，请求修改)
+    this.app.post("/api/reviews/:id/request-changes", async (req: Request, res: Response) => {
       try {
         const review = await this.reviewManager.getReview(req.params.id);
         const previousStatus = review?.status;

@@ -460,11 +460,11 @@ async function onSubmitReview() {
       });
       if (!res.ok) throw new Error('Failed to approve');
     } else {
-      // 有批注，提交反馈
-      const res = await fetch(`/api/reviews/${reviewId.value}/submit-feedback`, {
+      // 有批注，请求修改
+      const res = await fetch(`/api/reviews/${reviewId.value}/request-changes`, {
         method: 'POST'
       });
-      if (!res.ok) throw new Error('Failed to submit feedback');
+      if (!res.ok) throw new Error('Failed to request changes');
     }
     // 状态会通过 SSE 自动更新
   } catch (e) {

@@ -472,6 +472,7 @@ export class ReviewManager {
         commentId: string;
         resolution: string;
       }>;
+      autoResolveAll?: boolean;  // 自动 resolve 所有未解决的评论
     }
   ): Promise<Review> {
     const review = await this.getReview(reviewId);
@@ -508,7 +509,21 @@ export class ReviewManager {
     review.currentVersion = newVersionHash;
     review.planContent = newContent;
 
-    // 处理已解决的 comments
+    // Agent 提交修订版本时，自动 resolve 所有未解决的评论
+    if (options?.author === 'agent' || options?.autoResolveAll) {
+      const unresolvedComments = review.comments.filter(c => !c.resolved);
+      for (const comment of unresolvedComments) {
+        comment.resolved = true;
+        comment.resolvedAt = Date.now();
+        comment.resolvedInVersion = newVersionHash;
+        comment.resolution = '已在修订版本中处理';
+      }
+      if (unresolvedComments.length > 0) {
+        logger.info(`Auto-resolved ${unresolvedComments.length} comments for review ${reviewId}`);
+      }
+    }
+
+    // 处理显式指定的已解决 comments（覆盖自动解决的 resolution）
     if (options?.resolvedComments) {
       for (const rc of options.resolvedComments) {
         const comment = review.comments.find(c => c.id === rc.commentId);

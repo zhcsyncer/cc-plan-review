@@ -2,9 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import open from "open";
+// import open from "open";  // 已禁用 request_human_review 工具
 import { ReviewManager } from "./review-manager.js";
 import { logger } from "./logger.js";
+import { reviewEventBus } from "./event-bus.js";
 import type { Request, Response } from "express";
 
 export class McpService {
@@ -24,7 +25,8 @@ export class McpService {
   }
 
   private setupTools() {
-    // Tool 1: Request Review (Async)
+    // Tool 1: Request Review (Async) - 已禁用，通过 ExitPlanMode hook 自动触发
+    /*
     this.server.tool(
       "request_human_review",
       `手动请求人工审核计划。
@@ -57,6 +59,7 @@ Review ID: ${review.id}
         };
       }
     );
+    */
 
     // Tool 2: Get Review Result
     this.server.tool(
@@ -171,7 +174,7 @@ Review ID: ${review.id}
         }
     );
 
-    // Tool 3: Ask Questions
+    // Tool 3: Ask Questions (阻塞等待用户回答)
     this.server.tool(
         "ask_questions",
         `Ask questions or acknowledge comments from user feedback.
@@ -182,8 +185,7 @@ Question types:
 - choice: Provide options for user to choose (shows radio buttons)
 - accepted: Acknowledge the comment, provide resolution message
 
-After calling this, status changes to 'discussing'.
-Wait for user to answer, then call get_review_result again.`,
+This tool will BLOCK until user submits their answers (timeout: 10 minutes).`,
         {
             reviewId: z.string().describe("The ID of the review."),
             questions: z.array(z.object({
@@ -196,26 +198,101 @@ Wait for user to answer, then call get_review_result again.`,
         async ({ reviewId, questions }) => {
             logger.info(`Tool called: ask_questions (reviewId: ${reviewId}, ${questions.length} questions)`);
 
+            const WAIT_TIMEOUT = 10 * 60 * 1000; // 10 分钟超时
+            const POLL_INTERVAL = 2000; // 2 秒轮询
+
             try {
+                // 获取之前的状态
+                const beforeReview = await this.reviewManager.getReview(reviewId);
+                const previousStatus = beforeReview?.status;
+
                 const review = await this.reviewManager.askQuestions(reviewId, questions);
 
                 const acceptedCount = questions.filter(q => q.type === 'accepted').length;
                 const pendingCount = questions.filter(q => q.type !== 'accepted').length;
 
+                // 发送 SSE 事件通知前端
+                if (previousStatus && previousStatus !== review.status) {
+                    reviewEventBus.emitStatusChanged(reviewId, review.status, previousStatus);
+                }
+
+                // 发送 questions 更新事件
+                const questionsData = questions.map(q => ({
+                    commentId: q.commentId,
+                    question: {
+                        type: q.type,
+                        message: q.message,
+                        options: q.options
+                    }
+                }));
+                reviewEventBus.emitQuestionsUpdated(reviewId, questionsData);
+
                 logger.info(`ask_questions: ${acceptedCount} accepted, ${pendingCount} pending for review ${reviewId}`);
 
+                // 如果没有待回答的问题，直接返回
+                if (pendingCount === 0) {
+                    return {
+                        content: [{ type: "text", text: JSON.stringify({
+                            success: true,
+                            reviewId: review.id,
+                            status: review.status,
+                            acceptedCount,
+                            pendingCount: 0,
+                            message: `All ${acceptedCount} comments accepted.`
+                        }) }]
+                    };
+                }
+
+                // 阻塞等待用户回答（轮询状态变化）
+                logger.info(`ask_questions: Waiting for user to answer questions...`);
+                const startTime = Date.now();
+
+                while (Date.now() - startTime < WAIT_TIMEOUT) {
+                    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
+
+                    const currentReview = await this.reviewManager.getReview(reviewId);
+                    if (!currentReview) {
+                        logger.warn(`ask_questions: Review ${reviewId} not found during wait`);
+                        break;
+                    }
+
+                    // 状态从 discussing 变化，说明用户已提交回答
+                    if (currentReview.status !== 'discussing') {
+                        logger.info(`ask_questions: User answered, status changed to ${currentReview.status}`);
+
+                        // 收集用户的回答
+                        const answers = currentReview.comments
+                            .filter(c => c.question && c.answer)
+                            .map(c => ({
+                                commentId: c.id,
+                                question: c.question?.message,
+                                answer: c.answer
+                            }));
+
+                        return {
+                            content: [{ type: "text", text: JSON.stringify({
+                                success: true,
+                                reviewId: currentReview.id,
+                                status: currentReview.status,
+                                answers,
+                                message: `User has answered ${answers.length} questions.`
+                            }) }]
+                        };
+                    }
+                }
+
+                // 超时
+                logger.warn(`ask_questions: Timeout waiting for user answers`);
                 return {
                     content: [{ type: "text", text: JSON.stringify({
-                        success: true,
-                        reviewId: review.id,
-                        status: review.status,
-                        acceptedCount,
-                        pendingCount,
-                        message: pendingCount > 0
-                            ? `Questions sent. ${acceptedCount} comments accepted, ${pendingCount} awaiting user response. Wait for user to answer.`
-                            : `All ${acceptedCount} comments accepted. You can now call update_plan.`
+                        success: false,
+                        reviewId,
+                        status: 'discussing',
+                        error: 'Timeout waiting for user to answer questions (10 minutes).',
+                        message: 'Please ask the user to complete their answers in the browser, then call get_review_result to check the status.'
                     }) }]
                 };
+
             } catch (e: any) {
                 logger.error(`ask_questions failed: ${e.message}`);
                 return {
@@ -228,7 +305,8 @@ Wait for user to answer, then call get_review_result again.`,
         }
     );
 
-    // Tool 4: Update Plan
+    // Tool 4: Update Plan - 已禁用，修订版本通过 ExitPlanMode + REVIEW_ID 标记提交
+    /*
     this.server.tool(
         "update_plan",
         `更新计划内容。创建新版本，用户浏览器会自动刷新显示更新后的计划。
@@ -297,6 +375,7 @@ Wait for user to answer, then call get_review_result again.`,
             }
         }
     );
+    */
   }
 
   async handleRequest(req: Request, res: Response) {

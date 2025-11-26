@@ -49,6 +49,18 @@ interface Review {
   approvedDirectly?: boolean;
 }
 
+// 从 plan 内容中提取 REVIEW_ID 标记
+function extractReviewId(planContent: string): string | null {
+  // 匹配 <!-- REVIEW_ID: xxx --> 格式
+  const match = planContent.match(/<!--\s*REVIEW_ID:\s*([a-f0-9-]+)\s*-->/i);
+  return match ? match[1] : null;
+}
+
+// 从 plan 内容中移除 REVIEW_ID 标记
+function removeReviewIdMarker(planContent: string): string {
+  return planContent.replace(/<!--\s*REVIEW_ID:\s*[a-f0-9-]+\s*-->\n?/gi, '');
+}
+
 // HTTP 请求封装
 function httpRequest(options: http.RequestOptions, postData?: string): Promise<any> {
   debug('httpRequest', { method: options.method, path: options.path, postDataLength: postData?.length });
@@ -98,6 +110,31 @@ async function createReview(plan: string, projectPath: string): Promise<Review> 
 
   if (result.statusCode !== 200 || !result.data) {
     throw new Error('Failed to create review session');
+  }
+  return result.data;
+}
+
+// 更新已有 review 的 plan 内容（提交修订版本）
+async function updateReviewPlan(reviewId: string, plan: string): Promise<Review> {
+  debug('updateReviewPlan', { reviewId, planLength: plan.length });
+  const postData = JSON.stringify({
+    content: plan,
+    author: 'agent',
+    changeDescription: '根据审核反馈修订'
+  });
+  const result = await httpRequest({
+    hostname: SERVER_HOST,
+    port: SERVER_PORT,
+    path: `/api/reviews/${reviewId}/plan`,
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(postData)
+    }
+  }, postData);
+
+  if (result.statusCode !== 200 || !result.data) {
+    throw new Error(`Failed to update review: ${result.data?.error || 'Unknown error'}`);
   }
   return result.data;
 }
@@ -253,23 +290,49 @@ async function main() {
       process.exit(0);
     }
 
-    // 提取 plan 内容 - ExitPlanMode 没有参数，需要从其他地方获取计划内容
-    // 实际上 ExitPlanMode 是无参数的，计划内容应该从 Plan 文件读取
-    // 这里我们创建一个空的 review，让用户在浏览器中查看
-    const planContent = input.tool_input?.plan || input.tool_input?.summary || 'Plan review requested';
-    debug('Plan content extracted', { planContentLength: planContent.length });
+    // 提取 plan 内容
+    const rawPlanContent = input.tool_input?.plan || input.tool_input?.summary || 'Plan review requested';
+    debug('Raw plan content extracted', { planContentLength: rawPlanContent.length });
 
-    // 创建 review session
+    // 检查是否包含 REVIEW_ID 标记（修订版本）
+    const existingReviewId = extractReviewId(rawPlanContent);
+    const planContent = existingReviewId ? removeReviewIdMarker(rawPlanContent) : rawPlanContent;
+    debug('Review ID check', { existingReviewId, cleanPlanLength: planContent.length });
+
     let review: Review;
-    try {
-      review = await createReview(planContent, input.cwd);
-      debug('Review session created', { reviewId: review.id, status: review.status });
-    } catch (error) {
-      // 服务器不可用时，允许通过
-      debug('Failed to create review, allowing through', { error: String(error) });
-      console.error(`Failed to create review: ${error}`);
-      console.log(JSON.stringify({ decision: 'approve' }));
-      process.exit(0);
+    let isRevision = false;
+
+    if (existingReviewId) {
+      // 修订版本：更新已有 review
+      debug('Revision detected, updating existing review', { reviewId: existingReviewId });
+      try {
+        // 先验证 review 是否存在
+        const existingReview = await getReview(existingReviewId);
+        if (!existingReview) {
+          throw new Error(`Review ${existingReviewId} not found`);
+        }
+        // 更新 plan 内容
+        review = await updateReviewPlan(existingReviewId, planContent);
+        isRevision = true;
+        debug('Review updated successfully', { reviewId: review.id, status: review.status });
+      } catch (error) {
+        // 更新失败，回退到创建新 review
+        debug('Failed to update review, creating new one', { error: String(error) });
+        review = await createReview(planContent, input.cwd);
+        debug('New review created as fallback', { reviewId: review.id });
+      }
+    } else {
+      // 首次提交：创建新 review
+      try {
+        review = await createReview(planContent, input.cwd);
+        debug('New review session created', { reviewId: review.id, status: review.status });
+      } catch (error) {
+        // 服务器不可用时，允许通过
+        debug('Failed to create review, allowing through', { error: String(error) });
+        console.error(`Failed to create review: ${error}`);
+        console.log(JSON.stringify({ decision: 'approve' }));
+        process.exit(0);
+      }
     }
 
     // 等待用户审核完成
@@ -296,6 +359,7 @@ async function main() {
     const reviewResult = result as Review;
     const unresolvedCount = reviewResult.comments.filter(c => !c.resolved).length;
     debug('Processing review result', {
+      isRevision,
       approvedDirectly: reviewResult.approvedDirectly,
       totalComments: reviewResult.comments.length,
       unresolvedComments: unresolvedCount
@@ -318,7 +382,10 @@ async function main() {
 
 ${commentsText}
 
-请根据以上反馈修改计划，然后再次调用 ExitPlanMode 提交修改后的计划。修改后用户的浏览器会自动刷新显示新版本。`
+请根据以上反馈修改计划。修改时请在计划文件开头添加以下标记：
+<!-- REVIEW_ID: ${reviewResult.id} -->
+
+然后再次调用 ExitPlanMode 提交修订版本。`
       };
       console.log(JSON.stringify(output));
     }
