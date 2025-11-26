@@ -9,7 +9,8 @@ import { sseManager } from "./sse-manager.js";
 import { reviewEventBus } from "./event-bus.js";
 
 // 获取当前目录（兼容 CJS 打包）
-const currentDir = typeof __dirname !== 'undefined' ? __dirname : path.dirname(new URL(import.meta.url).pathname);
+// 使用 path.resolve 确保是绝对路径，避免 sendFile 出错
+const currentDir = path.resolve(typeof __dirname !== 'undefined' ? __dirname : path.dirname(new URL(import.meta.url).pathname));
 
 export interface HttpServerOptions {
   enableMcpEndpoint?: boolean;  // 是否启用 /mcp 端点，默认 true
