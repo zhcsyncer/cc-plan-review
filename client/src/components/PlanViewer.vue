@@ -65,6 +65,7 @@ interface CommentRequest {
 const emit = defineEmits<{
   (e: 'request-comment', data: CommentRequest): void;
   (e: 'highlight-click', id: string): void;
+  (e: 'selection-change', data: CommentRequest | null): void;
 }>();
 
 // mark.js 实例
@@ -302,17 +303,22 @@ function onMouseUp() {
   // 历史版本不允许添加评论
   if (props.isHistoricalVersion) {
     selectionBtnStyle.value.display = 'none';
+    emit('selection-change', null);
     return;
   }
 
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed) {
     selectionBtnStyle.value.display = 'none';
+    emit('selection-change', null);
     return;
   }
 
   const text = selection.toString().trim();
-  if (!text) return;
+  if (!text) {
+    emit('selection-change', null);
+    return;
+  }
 
   const range = selection.getRangeAt(0);
 
@@ -324,6 +330,7 @@ function onMouseUp() {
 
   if (parentElement?.closest('.comment-highlight')) {
     selectionBtnStyle.value.display = 'none';
+    emit('selection-change', null);
     return;
   }
 
@@ -337,6 +344,14 @@ function onMouseUp() {
 
   selectedText.value = text;
   selectionRange.value = range.cloneRange();
+
+  // 发出选中状态变化事件
+  const position = calculateMarkdownOffset(text);
+  emit('selection-change', {
+    quote: text,
+    position,
+    boundingRect: rect
+  });
 }
 
 function addComment() {
@@ -356,6 +371,7 @@ function addComment() {
   window.getSelection()?.removeAllRanges();
   selectedText.value = '';
   selectionRange.value = null;
+  emit('selection-change', null);
 }
 </script>
 
