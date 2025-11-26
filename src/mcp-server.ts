@@ -61,124 +61,7 @@ Review ID: ${review.id}
     );
     */
 
-    // Tool 2: Get Review Result
-    this.server.tool(
-        "get_review_result",
-        `获取人工审核的结果。
-
-在以下情况调用此工具：
-1. 用户在终端输入 'continue' 后
-2. 收到 ExitPlanMode 被阻止的消息后，需要获取详细反馈时
-
-返回内容根据状态不同：
-- open: 用户尚未提交审核
-- changes_requested: 返回用户的所有评论
-- discussing: 等待用户回答问题
-- approved: 计划已批准，可以开始执行
-- updated: 等待用户审核新版本`,
-        {
-            reviewId: z.string().optional().describe("Review ID。如果省略，获取当前项目最新的审核结果"),
-            projectPath: z.string().optional().describe("项目路径，用于查找该项目的审核记录")
-        },
-        async ({ reviewId, projectPath }) => {
-            logger.info(`Tool called: get_review_result (reviewId: ${reviewId || 'latest'}, project: ${projectPath || 'global'})`);
-            let review;
-            if (reviewId) {
-                review = await this.reviewManager.getReview(reviewId, projectPath);
-            } else {
-                review = await this.reviewManager.getLatestReview(projectPath);
-            }
-
-            if (!review) {
-                logger.info("get_review_result: No active review found");
-                return {
-                    content: [{ type: "text", text: JSON.stringify({ error: "No active review found." }) }]
-                };
-            }
-
-            // 根据状态返回不同内容
-            switch (review.status) {
-                case 'open':
-                    logger.info(`get_review_result: Review ${review.id} is open`);
-                    return {
-                        content: [{ type: "text", text: JSON.stringify({
-                            reviewId: review.id,
-                            status: 'open',
-                            message: "User has not submitted the review yet. Please wait for the user to finish."
-                        }) }]
-                    };
-
-                case 'discussing':
-                    logger.info(`get_review_result: Review ${review.id} is discussing`);
-                    return {
-                        content: [{ type: "text", text: JSON.stringify({
-                            reviewId: review.id,
-                            status: 'discussing',
-                            message: "Waiting for user to answer your questions. Please wait."
-                        }) }]
-                    };
-
-                case 'approved':
-                    logger.info(`get_review_result: Review ${review.id} approved`);
-                    const approvedResult: Record<string, unknown> = {
-                        reviewId: review.id,
-                        status: 'approved',
-                        message: "Plan approved by user. You may proceed with implementation."
-                    };
-                    if (review.approvalNote) {
-                        approvedResult.note = review.approvalNote;
-                    }
-                    return {
-                        content: [{ type: "text", text: JSON.stringify(approvedResult) }]
-                    };
-
-                case 'updated':
-                    logger.info(`get_review_result: Review ${review.id} updated, waiting for user`);
-                    return {
-                        content: [{ type: "text", text: JSON.stringify({
-                            reviewId: review.id,
-                            status: 'updated',
-                            message: "Waiting for user to review the new revision. Please wait."
-                        }) }]
-                    };
-
-                case 'changes_requested':
-                default:
-                    // 返回用户的 comments
-                    const unresolvedComments = (review.comments || []).filter(c => !c.resolved);
-
-                    if (unresolvedComments.length === 0) {
-                        logger.info(`get_review_result: Review ${review.id} has no unresolved comments`);
-                        return {
-                            content: [{ type: "text", text: JSON.stringify({
-                                reviewId: review.id,
-                                status: 'changes_requested',
-                                comments: [],
-                                message: "No unresolved comments. You can call update_plan to submit new version."
-                            }) }]
-                        };
-                    }
-
-                    const commentsData = unresolvedComments.map(c => ({
-                        id: c.id,
-                        quote: c.quote,
-                        comment: c.comment,
-                        answer: c.answer  // 如果之前有 question，这是用户的回答
-                    }));
-
-                    logger.info(`get_review_result: Returned ${unresolvedComments.length} comments for review ${review.id}`);
-                    return {
-                        content: [{ type: "text", text: JSON.stringify({
-                            reviewId: review.id,
-                            status: 'changes_requested',
-                            comments: commentsData
-                        }) }]
-                    };
-            }
-        }
-    );
-
-    // Tool 3: Ask Questions (阻塞等待用户回答)
+    // Tool 2: Ask Questions (阻塞等待用户回答)
     this.server.tool(
         "ask_questions",
         `Ask questions or acknowledge comments from user feedback.
@@ -293,7 +176,7 @@ This tool will BLOCK until user submits their answers (timeout: 10 minutes).`,
                         reviewId,
                         status: 'discussing',
                         error: 'Timeout waiting for user to answer questions (10 minutes).',
-                        message: 'Please ask the user to complete their answers in the browser, then call get_review_result to check the status.'
+                        message: 'Please ask the user to complete their answers in the browser, then retry ask_questions or modify the plan and re-submit via ExitPlanMode.'
                     }) }]
                 };
 

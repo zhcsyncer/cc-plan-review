@@ -289,9 +289,9 @@ export class ReviewManager {
   async addComment(
     reviewId: string,
     commentData: {
-      quote: string;
+      quote?: string;      // 可选，全局性批注时为空
       comment: string;
-      position: TextPosition;
+      position?: TextPosition;  // 可选，全局性批注时为空
     }
   ): Promise<Comment> {
     const review = await this.getReview(reviewId);
@@ -300,19 +300,28 @@ export class ReviewManager {
         throw new Error('Review not found');
     }
 
+    // 全局性批注：quote 为空，position 为 { startOffset: 0, endOffset: 0 }
+    const isGlobalComment = !commentData.quote || !commentData.position;
+    const position = commentData.position || { startOffset: 0, endOffset: 0 };
+
     const comment: Comment = {
       id: randomUUID(),
       createdAt: Date.now(),
-      quote: commentData.quote,
+      quote: commentData.quote || '',
       comment: commentData.comment,
-      position: commentData.position,
+      position,
       documentVersion: review.currentVersion,
       positionStatus: 'valid',
       resolved: false
     };
     review.comments.push(comment);
     await this._save(review);
-    logger.info(`Added comment to review ${reviewId}: ${comment.id} at offset ${commentData.position.startOffset}-${commentData.position.endOffset}`);
+
+    if (isGlobalComment) {
+      logger.info(`Added global comment to review ${reviewId}: ${comment.id}`);
+    } else {
+      logger.info(`Added comment to review ${reviewId}: ${comment.id} at offset ${position.startOffset}-${position.endOffset}`);
+    }
     return comment;
   }
 

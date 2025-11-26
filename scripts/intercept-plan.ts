@@ -351,14 +351,50 @@ async function pollForReview(reviewId: string, timeout: number): Promise<Review 
   return 'timeout';
 }
 
-// 格式化评论反馈
-function formatComments(comments: Review['comments']): string {
+// 根据偏移量计算行号
+function calculateLineNumber(content: string, offset: number): number {
+  const textBefore = content.substring(0, offset);
+  return (textBefore.match(/\n/g) || []).length + 1;
+}
+
+// 判断是否为全局性批注
+function isGlobalComment(item: Review['comments'][0]): boolean {
+  return !item.quote || (item.position?.startOffset === 0 && item.position?.endOffset === 0);
+}
+
+// 格式化评论反馈（含行号和偏移量，区分普通批注和全局性批注）
+function formatComments(comments: Review['comments'], planContent: string): string {
   const unresolvedComments = comments.filter(c => !c.resolved);
   if (unresolvedComments.length === 0) return '';
 
-  return unresolvedComments.map((item, index) => {
-    return `${index + 1}. [引用: "${item.quote}"] → 评论: ${item.comment}`;
-  }).join('\n');
+  // 分离普通批注和全局性批注
+  const lineComments = unresolvedComments.filter(c => !isGlobalComment(c));
+  const globalComments = unresolvedComments.filter(c => isGlobalComment(c));
+
+  let result = '';
+
+  // 格式化普通批注（带行号）
+  if (lineComments.length > 0) {
+    result = lineComments.map((item, index) => {
+      const pos = item.position;
+      const startLine = calculateLineNumber(planContent, pos.startOffset);
+      const endLine = calculateLineNumber(planContent, pos.endOffset);
+
+      const lineInfo = startLine === endLine ? `行 ${startLine}` : `行 ${startLine}-${endLine}`;
+      const offsetInfo = `偏移 ${pos.startOffset}-${pos.endOffset}`;
+
+      return `${index + 1}. [${lineInfo}, ${offsetInfo}, 引用: "${item.quote}"] → 评论: ${item.comment}`;
+    }).join('\n');
+  }
+
+  // 格式化全局性批注（单独说明）
+  if (globalComments.length > 0) {
+    if (result) result += '\n\n';
+    result += '**全局性审核意见**:\n';
+    result += globalComments.map((item, index) => `${index + 1}. ${item.comment}`).join('\n');
+  }
+
+  return result;
 }
 
 // 主函数
@@ -492,7 +528,7 @@ ${reviewResult.planContent}`;
     } else {
       // 用户有反馈，阻止并返回评论
       debug('Review has feedback, blocking ExitPlanMode');
-      const commentsText = formatComments(reviewResult.comments);
+      const commentsText = formatComments(reviewResult.comments, reviewResult.planContent || '');
       const output = {
         decision: 'block',
         reason: `用户对计划有以下修改建议（Review ID: ${reviewResult.id}）：

@@ -35,10 +35,19 @@ const emit = defineEmits<{
   (e: 'update-comment', id: string, text: string): void;
   (e: 'delete-comment', id: string): void;
   (e: 'submit-review'): void;
+  (e: 'submit-with-note'): void;
   (e: 'comment-click', id: string): void;
   (e: 'answer-question', commentId: string, answer: string): void;
   (e: 'update:approvalNote', value: string): void;
 }>();
+
+// 处理全局意见输入框的快捷键
+function handleApprovalNoteKeydown(e: KeyboardEvent) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    emit('submit-with-note');
+  }
+}
 
 // 计算属性：未解决的 comments
 const unresolvedComments = computed(() => props.comments.filter(c => !c.resolved));
@@ -200,17 +209,18 @@ function handleAnswerQuestion(commentId: string, answer: string) {
 
     <!-- Footer -->
     <div class="p-4 border-t border-border-light dark:border-border-dark bg-app-surface-light dark:bg-app-surface-dark transition-colors duration-200">
-      <!-- 折叠式补充意见输入框（仅在 Approve 模式时显示） -->
-      <details v-if="unresolvedComments.length === 0 && !hasQuestions" class="mb-3">
+      <!-- 折叠式全局意见输入框（始终显示，除了 Agent 提问时） -->
+      <details v-if="!hasQuestions" class="mb-3">
         <summary class="text-sm text-text-secondary-light dark:text-text-secondary-dark cursor-pointer hover:text-text-primary-light dark:hover:text-text-primary-dark select-none">
-          Add a note (optional)
+          Add a global note (optional)
         </summary>
         <textarea
           :value="approvalNote"
           @input="emit('update:approvalNote', ($event.target as HTMLTextAreaElement).value)"
+          @keydown="handleApprovalNoteKeydown"
           class="w-full mt-2 text-sm border border-border-light dark:border-border-dark rounded-lg p-2 focus:ring-2 focus:ring-claude-primary dark:focus:ring-claude-primary-dark outline-none bg-app-surface-light dark:bg-app-surface-dark text-text-primary-light dark:text-text-primary-dark transition-colors duration-200 resize-none"
           rows="2"
-          placeholder="Optional note for the agent..."
+          placeholder="Global review note (Cmd+Enter to submit)..."
         ></textarea>
       </details>
 

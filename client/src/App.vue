@@ -507,23 +507,25 @@ async function onSubmitReview() {
   try {
     // 检查是否有未解决的 comments
     const unresolvedComments = comments.value.filter(c => !c.resolved);
+    const hasApprovalNote = approvalNote.value.trim();
 
-    if (unresolvedComments.length === 0) {
-      // 无批注或全部已解决，直接通过
-      const body: { note?: string } = {};
-      if (approvalNote.value.trim()) {
-        body.note = approvalNote.value.trim();
-      }
+    if (unresolvedComments.length === 0 && !hasApprovalNote) {
+      // 无批注且无全局意见 → 直接通过
       const res = await fetch(`/api/reviews/${reviewId.value}/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        method: 'POST'
       });
       if (!res.ok) throw new Error('Failed to approve');
     } else {
-      // 有批注，请求修改
+      // 有批注或有全局意见 → 请求修改
+      const body: { note?: string } = {};
+      if (hasApprovalNote) {
+        body.note = hasApprovalNote;
+        approvalNote.value = '';  // 清空输入框
+      }
       const res = await fetch(`/api/reviews/${reviewId.value}/request-changes`, {
-        method: 'POST'
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
       });
       if (!res.ok) throw new Error('Failed to request changes');
     }
@@ -691,6 +693,7 @@ function onHighlightClick(id: string) {
             @update-comment="onUpdateComment"
             @delete-comment="onDeleteComment"
             @submit-review="onSubmitReview"
+            @submit-with-note="onSubmitReview"
             @comment-click="onCommentClick"
             @answer-question="onAnswerQuestion"
           />
