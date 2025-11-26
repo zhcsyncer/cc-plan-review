@@ -469,7 +469,8 @@ export class HttpServer {
 
     // SPA Fallback
     this.app.get(/^\/review(\/.*)?$/, (req: Request, res: Response) => {
-        res.sendFile(path.join(currentDir, "client/index.html"));
+        // Express 5 requires root option for sendFile
+        res.sendFile("index.html", { root: path.join(currentDir, "client") });
     });
   }
 
