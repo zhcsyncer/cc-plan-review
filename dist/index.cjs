@@ -35082,6 +35082,7 @@ var sseManager = new SSEManager();
 // src/http-server.ts
 var import_meta2 = {};
 var currentDir = import_path2.default.resolve(typeof __dirname !== "undefined" ? __dirname : import_path2.default.dirname(new URL(import_meta2.url).pathname));
+logger.info(`=====> Current directory: ${currentDir}`);
 var DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1e3;
 var HttpServer = class {
   app;
