@@ -47,7 +47,7 @@ export class HttpServer {
     });
 
     // Serve static files
-    this.app.use(express.static(path.join(__dirname, "../client/dist")));
+    this.app.use(express.static(path.join(__dirname, "client")));
   }
 
   private setupRoutes() {
@@ -426,7 +426,7 @@ export class HttpServer {
 
     // SPA Fallback
     this.app.get(/^\/review(\/.*)?$/, (req: Request, res: Response) => {
-        res.sendFile(path.join(__dirname, "../client/dist/index.html"));
+        res.sendFile(path.join(__dirname, "client/index.html"));
     });
   }
 

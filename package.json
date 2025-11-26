@@ -16,7 +16,6 @@
   },
   "files": [
     "dist",
-    "client/dist",
     ".claude-plugin",
     ".mcp.json",
     "hooks"

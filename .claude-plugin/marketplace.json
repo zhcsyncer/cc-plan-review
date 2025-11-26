@@ -9,7 +9,11 @@
       "name": "cc-plan-review",
       "description": "GUI-based plan review for Claude Code with ExitPlanMode interception",
       "version": "1.0.0",
-      "source": "./",
+      "source": {
+        "source": "github",
+        "repo": "zhcsyncer/cc-plan-review",
+        "ref": "main"
+      },
       "author": {
         "name": "zhcsyncer"
       }

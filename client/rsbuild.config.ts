@@ -7,6 +7,11 @@ export default defineConfig({
       index: './src/main.ts',
     },
   },
+  output: {
+    distPath: {
+      root: '../dist/client',
+    },
+  },
   plugins: [pluginVue()],
   html: {
     template: './index.html',
