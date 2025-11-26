@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue';
 import { Trash2, Edit2, Check, X, ChevronDown, ChevronUp } from 'lucide-vue-next';
 import QuestionInput from './QuestionInput.vue';
+import Kbd from './Kbd.vue';
 
 type ReviewStatus = 'open' | 'changes_requested' | 'discussing' | 'approved' | 'updated';
 
@@ -265,7 +266,7 @@ function toggleExpand(c: Comment) {
         @click="emit('submit-review')"
         :disabled="buttonDisabled"
         :class="[
-          'w-full text-white py-2 px-4 rounded-lg font-medium transition-all',
+          'w-full text-white py-2 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2',
           confirmPending
             ? 'bg-red-600 dark:bg-red-700 hover:bg-red-700 dark:hover:bg-red-800 animate-pulse'
             : buttonDisabled
@@ -273,7 +274,12 @@ function toggleExpand(c: Comment) {
               : 'bg-claude-primary dark:bg-claude-primary-dark hover:bg-claude-primary-hover'
         ]"
       >
-        {{ buttonText }}
+        <span>{{ buttonText }}</span>
+        <Kbd
+          v-if="!confirmPending && !buttonDisabled"
+          keys="mod+shift+p"
+          class="!bg-white/20 !border-white/30 !text-white/80 !shadow-none"
+        />
       </button>
       <p v-if="hasQuestions && !allQuestionsAnswered" class="mt-2 text-xs text-center text-orange-600 dark:text-orange-400">
         Please answer all questions before submitting.

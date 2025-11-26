@@ -103,9 +103,9 @@ export interface DiffChange {
 
 // Agent 针对 Comment 的问题
 export interface CommentQuestion {
-  type: 'clarification' | 'choice' | 'accepted';
+  type: 'clarification' | 'choice' | 'multiChoice' | 'accepted';
   message: string;                // Agent 的问题/说明
-  options?: string[];             // choice 类型时的选项
+  options?: string[];             // choice/multiChoice 类型时的选项
 }
 
 export interface Comment {
@@ -406,7 +406,7 @@ export class ReviewManager {
     reviewId: string,
     questions: Array<{
       commentId: string;
-      type: 'clarification' | 'choice' | 'accepted';
+      type: 'clarification' | 'choice' | 'multiChoice' | 'accepted';
       message: string;
       options?: string[];
     }>

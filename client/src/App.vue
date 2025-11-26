@@ -4,7 +4,10 @@ import PlanViewer from './components/PlanViewer.vue';
 import ReviewSidebar from './components/ReviewSidebar.vue';
 import VersionPanel from './components/VersionPanel.vue';
 import DiffViewer from './components/DiffViewer.vue';
+import KeyboardHelpModal from './components/KeyboardHelpModal.vue';
+import Kbd from './components/Kbd.vue';
 import { useSSE, type ReviewStatus, type StatusChangedData, type VersionUpdatedData, type QuestionsUpdatedData } from './composables/useSSE';
+import { useKeyboard } from './composables/useKeyboard';
 
 interface TextPosition {
   startOffset: number;
@@ -95,6 +98,17 @@ const approvalNote = ref('');
 // Approved 后的倒计时关闭
 const countdown = ref(3);
 let countdownTimer: number | null = null;
+
+// 快捷键帮助面板
+const showKeyboardHelp = ref(false);
+
+// 快捷键 Approve 连击确认
+const approveShortcutPending = ref(false);
+let approveShortcutTimer: number | null = null;
+
+// 选中文本状态（用于 C 键快捷键）
+const hasTextSelection = ref(false);
+const selectionData = ref<CommentRequest | null>(null);
 
 // 计算属性：是否为只读模式
 const isReadOnly = computed(() => {
@@ -572,6 +586,149 @@ function onHighlightClick(id: string) {
   // 点击高亮时，切换激活状态
   activeCommentId.value = activeCommentId.value === id ? null : id;
 }
+
+// 处理文本选中状态变化
+function onSelectionChange(data: CommentRequest | null) {
+  hasTextSelection.value = !!data;
+  selectionData.value = data;
+}
+
+// 快捷键 Approve（连击确认）
+function handleApproveShortcut() {
+  // 仅在非只读、非加载状态下触发
+  if (isReadOnly.value || loading.value || showSubmittedView.value || isWaitingForAgent.value) {
+    return;
+  }
+
+  // 第一次按下：进入确认状态
+  if (!approveShortcutPending.value) {
+    approveShortcutPending.value = true;
+
+    // 启动 3 秒倒计时
+    approveShortcutTimer = window.setTimeout(() => {
+      approveShortcutPending.value = false;
+      approveShortcutTimer = null;
+    }, 3000);
+
+    return;
+  }
+
+  // 第二次按下：执行提交
+  if (approveShortcutTimer) {
+    clearTimeout(approveShortcutTimer);
+    approveShortcutTimer = null;
+  }
+  approveShortcutPending.value = false;
+
+  // 执行提交
+  onSubmitReview();
+}
+
+// 计算当前版本索引（用于方向键切换）
+const currentVersionIndex = computed(() => {
+  return versions.value.findIndex(v => v.versionHash === selectedVersion.value);
+});
+
+// 初始化快捷键
+const { register, isMac: isMacKeyboard } = useKeyboard();
+
+// 注册快捷键
+const unregisterCallbacks: Array<() => void> = [];
+
+onMounted(() => {
+  // 全局 Approve 快捷键 (Cmd+Shift+P / Ctrl+Shift+P)
+  unregisterCallbacks.push(register({
+    key: 'p',
+    modifiers: { mod: true, shift: true },
+    handler: handleApproveShortcut,
+    description: 'Approve / Submit Review',
+    group: 'Review',
+  }));
+
+  // 评论快捷键 (C)
+  unregisterCallbacks.push(register({
+    key: 'c',
+    handler: () => {
+      if (hasTextSelection.value && selectionData.value && !isReadOnly.value) {
+        onRequestComment(selectionData.value);
+      }
+    },
+    description: 'Add comment to selected text',
+    group: 'Comments',
+  }));
+
+  // 版本切换快捷键 (←)
+  unregisterCallbacks.push(register({
+    key: 'ArrowLeft',
+    handler: () => {
+      const idx = currentVersionIndex.value;
+      if (idx > 0 && versions.value.length > 1) {
+        onSelectVersion(versions.value[idx - 1].versionHash);
+      }
+    },
+    description: 'Previous version',
+    group: 'Navigation',
+  }));
+
+  // 版本切换快捷键 (→)
+  unregisterCallbacks.push(register({
+    key: 'ArrowRight',
+    handler: () => {
+      const idx = currentVersionIndex.value;
+      if (idx < versions.value.length - 1) {
+        onSelectVersion(versions.value[idx + 1].versionHash);
+      }
+    },
+    description: 'Next version',
+    group: 'Navigation',
+  }));
+
+  // 快捷键帮助 (?)
+  unregisterCallbacks.push(register({
+    key: '?',
+    handler: () => { showKeyboardHelp.value = true; },
+    description: 'Show keyboard shortcuts',
+    group: 'General',
+  }));
+
+  // 快捷键帮助 (Cmd+/ / Ctrl+/)
+  unregisterCallbacks.push(register({
+    key: '/',
+    modifiers: { mod: true },
+    handler: () => { showKeyboardHelp.value = true; },
+    description: 'Show keyboard shortcuts',
+    group: 'General',
+  }));
+
+  // Escape 关闭弹窗
+  unregisterCallbacks.push(register({
+    key: 'Escape',
+    handler: () => {
+      if (showKeyboardHelp.value) {
+        showKeyboardHelp.value = false;
+      } else if (showCommentModal.value) {
+        showCommentModal.value = false;
+      } else if (showDiff.value) {
+        showDiff.value = false;
+        diffData.value = null;
+      }
+    },
+    description: 'Close modal / dialog',
+    group: 'General',
+    enableInInput: true,
+  }));
+});
+
+onUnmounted(() => {
+  // 注销所有快捷键
+  unregisterCallbacks.forEach(fn => fn());
+
+  // 清理快捷键确认定时器
+  if (approveShortcutTimer) {
+    clearTimeout(approveShortcutTimer);
+    approveShortcutTimer = null;
+  }
+});
 </script>
 
 <template>
@@ -677,6 +834,7 @@ function onHighlightClick(id: string) {
               :current-version="selectedVersion"
               @request-comment="onRequestComment"
               @highlight-click="onHighlightClick"
+              @selection-change="onSelectionChange"
             />
           </div>
         </div>
@@ -741,5 +899,30 @@ function onHighlightClick(id: string) {
       :diff="diffData"
       @close="showDiff = false; diffData = null"
     />
+
+    <!-- Keyboard Help Modal -->
+    <KeyboardHelpModal
+      :visible="showKeyboardHelp"
+      @close="showKeyboardHelp = false"
+    />
+
+    <!-- 快捷键 Approve 连击确认提示 -->
+    <Transition
+      enter-active-class="transition-all duration-200"
+      enter-from-class="opacity-0 translate-y-4"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition-all duration-200"
+      leave-from-class="opacity-100 translate-y-0"
+      leave-to-class="opacity-0 translate-y-4"
+    >
+      <div
+        v-if="approveShortcutPending"
+        class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-pulse"
+      >
+        <span>Press</span>
+        <Kbd keys="mod+shift+p" class="!bg-red-800 !border-red-500" />
+        <span>again to confirm</span>
+      </div>
+    </Transition>
   </div>
 </template>

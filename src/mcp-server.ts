@@ -70,6 +70,7 @@ MUST cover ALL unresolved comments - each comment needs a question entry.
 Question types:
 - clarification: Need user to explain further (shows text input)
 - choice: Provide options for user to choose (shows radio buttons)
+- multiChoice: Allow user to select multiple options (shows checkboxes)
 - accepted: Acknowledge the comment, provide resolution message
 
 This tool will BLOCK until user submits their answers (timeout: 10 minutes).`,
@@ -77,9 +78,9 @@ This tool will BLOCK until user submits their answers (timeout: 10 minutes).`,
             reviewId: z.string().describe("The ID of the review."),
             questions: z.array(z.object({
                 commentId: z.string().describe("The ID of the comment to respond to."),
-                type: z.enum(['clarification', 'choice', 'accepted']).describe("Type of question/response."),
+                type: z.enum(['clarification', 'choice', 'multiChoice', 'accepted']).describe("Type of question/response."),
                 message: z.string().describe("Your question or acceptance message."),
-                options: z.array(z.string()).optional().describe("Options for 'choice' type (required for choice).")
+                options: z.array(z.string()).optional().describe("Options for 'choice' or 'multiChoice' type (required for choice/multiChoice).")
             })).describe("Array of questions/responses for each comment.")
         },
         async ({ reviewId, questions }) => {
