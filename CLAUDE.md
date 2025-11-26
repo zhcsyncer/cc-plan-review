@@ -103,3 +103,31 @@ open → changes_requested → discussing → approved
 - 日志输出到 stderr（避免干扰 MCP stdio 协议）
 - 调试模式: `DEBUG=1` 或 `CC_PLAN_REVIEW_DEBUG=1`
 - 日志文件: `logs/` 目录
+
+## Release Process
+
+**分支策略**：
+- `develop` 分支：`.gitignore` 忽略 `dist/`，开发时不跟踪构建产物
+- `main` 分支：`.gitignore` **不忽略** `dist/`，构建产物被 git 跟踪，用于发布
+
+**发布流程**（必须严格遵守）：
+
+```bash
+# 1. 切换到 main 分支
+git checkout main
+
+# 2. 合并 develop
+git merge develop
+
+# 3. 重新构建（关键！切换分支后 dist/ 会被回滚到旧版本）
+pnpm build
+
+# 4. 提交构建产物
+git add dist/
+git commit -m "build: update dist"
+
+# 5. 推送发布
+git push origin main
+```
+
+⚠️ **注意**：合并到 `main` 后必须重新执行 `pnpm build`，否则 `dist/` 是旧版本（被 git checkout 回滚）。
