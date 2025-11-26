@@ -1,5 +1,7 @@
 # Claude Code Plan Review Plugin
 
+[English](./README.md) | [中文](./README_zh.md)
+
 A Claude Code plugin that provides human review capability for Plan Mode. The plugin intercepts `ExitPlanMode` calls via hooks and opens a browser-based review interface where users can annotate and provide feedback on Claude-generated plans.
 
 ## Features
@@ -29,10 +31,19 @@ claude plugin install cc-plan-review@cc-plan-review-marketplace
 
 Or simply use `/plugin` and follow the interactive prompts.
 
-### Update
+### Update Plugin
+
+**Step 1: Update marketplace**
 ```bash
 claude plugin marketplace update
 ```
+
+**Step 2: Update the plugin via Claude Code**
+1. Enter `/plugin` command
+2. Select `2. Manage and uninstall plugins`
+3. Press Enter on the `cc-plan-review` plugin
+4. Press Enter again
+5. Select `Update now`
 
 ### From Source (Development)
 ```bash
@@ -54,10 +65,19 @@ ExitPlanMode called → Hook intercepts → Opens browser → User reviews → R
 
 ### 2. MCP Server
 Provides 4 tools for the review workflow:
-- `request_human_review`: Create a review session
-- `get_review_result`: Get review status and feedback
-- `ask_questions`: Agent asks clarifying questions
-- `update_plan`: Submit revised plan version
+- `request_human_review`: Create a review session and wait for user feedback
+- `get_review_result`: Get review status and feedback comments
+- `ask_questions`: Agent asks clarifying questions about user comments
+- `update_plan`: Submit revised plan version for re-review
+
+## Data Persistence
+
+Review data is stored in the following directory:
+```
+~/.cc-plan-review/reviews/
+```
+
+Each review session is saved as a JSON file with the review ID as the filename.
 
 ## Tech Stack
 
@@ -72,11 +92,3 @@ pnpm dev            # Watch mode
 pnpm build          # Full build (server + scripts + client)
 pnpm start          # Start server
 ```
-
-## API
-
-- `GET /api/reviews/:id`: Get review state
-- `POST /api/reviews/:id/comments`: Create draft comment
-- `PUT /api/reviews/:id/comments/:commentId`: Update draft
-- `DELETE /api/reviews/:id/comments/:commentId`: Delete draft
-- `POST /api/reviews/:id/submit`: Submit review

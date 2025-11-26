@@ -151,6 +151,16 @@ marked.use({ renderer });
 
 const renderedContent = computed(() => marked.parse(props.content));
 
+// 监听选区变化（当选区被清除时隐藏按钮）
+function handleSelectionChange() {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.toString().trim()) {
+    selectionBtnStyle.value.display = 'none';
+    selectedText.value = '';
+    selectionRange.value = null;
+  }
+}
+
 // 初始化 Mermaid 和 mark.js
 onMounted(() => {
   mermaid.initialize({
@@ -168,6 +178,13 @@ onMounted(() => {
       highlightComments();
     }
   });
+
+  // 监听 selectionchange 事件
+  document.addEventListener('selectionchange', handleSelectionChange);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('selectionchange', handleSelectionChange);
 });
 
 // 当内容变化时重新渲染 Mermaid 和高亮

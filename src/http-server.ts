@@ -346,12 +346,19 @@ export class HttpServer {
       logger.info(`SSE: Client connected for review ${req.params.id}`);
     });
 
-    // Request Changes (有批注，请求修改)
-    this.app.post("/api/reviews/:id/request-changes", async (req: Request, res: Response) => {
+    // Submit Review (统一提交接口)
+    // - passThrough=true: 直接批准，comments 作为建议传递给 Agent
+    // - passThrough=false/undefined: 根据是否有未解决 comments 决定行为
+    this.app.post("/api/reviews/:id/submit", async (req: Request, res: Response) => {
       try {
-        const { note } = req.body || {};
+        const { note, passThrough } = req.body || {};
         const review = await this.reviewManager.getReview(req.params.id);
-        const previousStatus = review?.status;
+        if (!review) {
+          res.status(404).json({ error: "Review not found" });
+          return;
+        }
+
+        const previousStatus = review.status;
 
         // 如果有全局性意见 note，先创建一个全局性批注
         if (note && typeof note === 'string' && note.trim()) {
@@ -363,90 +370,54 @@ export class HttpServer {
           logger.info(`Added global note to review ${req.params.id}`);
         }
 
-        const updatedReview = await this.reviewManager.submitFeedback(req.params.id);
+        // 检查是否有未解决的 comments
+        const hasUnresolvedComments = review.comments.some(c => !c.resolved);
 
-        // 触发状态变更事件
-        if (previousStatus && previousStatus !== updatedReview.status) {
-          reviewEventBus.emitStatusChanged(req.params.id, updatedReview.status, previousStatus);
-        }
-
-        res.json({ status: "ok", reviewStatus: updatedReview.status });
-      } catch (e: any) {
-        const statusCode = e.message.includes('not found') ? 404 : 400;
-        res.status(statusCode).json({ error: e.message });
-      }
-    });
-
-    // Approve Review (直接批准，支持 passThrough 模式)
-    this.app.post("/api/reviews/:id/approve", async (req: Request, res: Response) => {
-      try {
-        const { note, passThrough } = req.body || {};
-        const review = await this.reviewManager.getReview(req.params.id);
-        if (!review) {
-          res.status(404).json({ error: "Review not found" });
-          return;
-        }
-
-        const previousStatus = review.status;
-
-        // 直接设置为 approved 状态
-        review.status = 'approved';
-        review.approvedDirectly = true;
-
-        // passThrough 模式：记录标记，comments 作为建议传递
+        // passThrough 模式：直接批准，comments 作为建议传递
         if (passThrough) {
+          review.status = 'approved';
+          review.approvedDirectly = true;
           review.passThrough = true;
+          await this.reviewManager._save(review);
+
           logger.info(`Review ${req.params.id} approved with passThrough mode (${review.comments.filter(c => !c.resolved).length} suggestions)`);
-        }
 
-        if (note) {
-          review.approvalNote = note;
-        }
-        await this.reviewManager._save(review);
+          // 触发状态变更事件（approved 时包含 planContent）
+          if (previousStatus !== review.status) {
+            reviewEventBus.emitStatusChanged(req.params.id, review.status, previousStatus, review.planContent);
+          }
 
-        // 触发状态变更事件（approved 时包含 planContent）
-        if (previousStatus !== review.status) {
-          reviewEventBus.emitStatusChanged(req.params.id, review.status, previousStatus, review.planContent);
-        }
-
-        logger.info(`Review ${req.params.id} approved directly`);
-        res.json({ status: "ok", reviewStatus: review.status, passThrough: !!passThrough });
-      } catch (e: any) {
-        res.status(500).json({ error: e.message });
-      }
-    });
-
-    // Ask Questions (Agent 提问)
-    this.app.post("/api/reviews/:id/ask-questions", async (req: Request, res: Response) => {
-      try {
-        const { questions } = req.body;
-        if (!questions || !Array.isArray(questions)) {
-          res.status(400).json({ error: "Missing or invalid 'questions' array" });
+          res.json({ status: "ok", reviewStatus: review.status, passThrough: true });
           return;
         }
 
-        const review = await this.reviewManager.getReview(req.params.id);
-        const previousStatus = review?.status;
+        // 非 passThrough 模式：根据是否有 comments 决定
+        if (hasUnresolvedComments) {
+          // 有未解决的 comments -> 请求修改
+          const updatedReview = await this.reviewManager.submitFeedback(req.params.id);
 
-        const updatedReview = await this.reviewManager.askQuestions(req.params.id, questions);
-
-        // 触发状态变更事件
-        if (previousStatus && previousStatus !== updatedReview.status) {
-          reviewEventBus.emitStatusChanged(req.params.id, updatedReview.status, previousStatus);
-        }
-
-        // 触发 questions 更新事件
-        const questionsData = questions.map(q => ({
-          commentId: q.commentId,
-          question: {
-            type: q.type,
-            message: q.message,
-            options: q.options
+          if (previousStatus && previousStatus !== updatedReview.status) {
+            reviewEventBus.emitStatusChanged(req.params.id, updatedReview.status, previousStatus);
           }
-        }));
-        reviewEventBus.emitQuestionsUpdated(req.params.id, questionsData);
 
-        res.json({ status: "ok", reviewStatus: updatedReview.status });
+          logger.info(`Review ${req.params.id} submitted with changes requested`);
+          res.json({ status: "ok", reviewStatus: updatedReview.status });
+        } else {
+          // 无 comments -> 直接批准
+          review.status = 'approved';
+          review.approvedDirectly = true;
+          if (note) {
+            review.approvalNote = note;
+          }
+          await this.reviewManager._save(review);
+
+          if (previousStatus !== review.status) {
+            reviewEventBus.emitStatusChanged(req.params.id, review.status, previousStatus, review.planContent);
+          }
+
+          logger.info(`Review ${req.params.id} approved directly`);
+          res.json({ status: "ok", reviewStatus: review.status });
+        }
       } catch (e: any) {
         const statusCode = e.message.includes('not found') ? 404 : 400;
         res.status(statusCode).json({ error: e.message });

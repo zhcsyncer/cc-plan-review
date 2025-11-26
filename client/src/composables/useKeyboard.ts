@@ -58,6 +58,9 @@ function generateBindingKey(key: string, modifiers?: KeyBinding['modifiers']): s
   return parts.join('+');
 }
 
+// 需要 Shift 产生的符号键（不检查 Shift 状态）
+const SHIFT_SYMBOL_KEYS = new Set(['!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '{', '}', '|', ':', '"', '<', '>', '?', '~']);
+
 // 全局键盘事件处理
 function handleGlobalKeydown(e: KeyboardEvent) {
   const key = e.key.toLowerCase();
@@ -75,7 +78,13 @@ function handleGlobalKeydown(e: KeyboardEvent) {
       ? (isMac.value ? e.metaKey : e.ctrlKey)
       : !(isMac.value ? e.metaKey : e.ctrlKey) || modifiers.ctrl;
     const ctrlMatch = modifiers.ctrl ? e.ctrlKey : !e.ctrlKey || modifiers.mod;
-    const shiftMatch = modifiers.shift ? e.shiftKey : !e.shiftKey;
+
+    // 对于符号键（需要 Shift 产生），如果没有声明 shift 修饰符，则忽略 shiftKey 检查
+    const isSymbolKey = SHIFT_SYMBOL_KEYS.has(binding.key);
+    const shiftMatch = modifiers.shift
+      ? e.shiftKey
+      : (isSymbolKey ? true : !e.shiftKey);
+
     const altMatch = modifiers.alt ? e.altKey : !e.altKey;
 
     if (!modMatch || !shiftMatch || !altMatch) continue;
