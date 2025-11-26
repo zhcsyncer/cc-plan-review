@@ -102,12 +102,24 @@ When the user approves a plan in the review interface, the plugin returns an "ap
 
 **Issue**: After the hook returns `approve`, Claude Code does not automatically switch from Plan Mode to Accept Edits Mode.
 
-**Workaround**: After approving a plan, users need to manually:
-1. Wait for Claude to acknowledge the approval
-2. Use the `/acceptedits` command or switch to "Auto Accept" mode in Claude Code
-3. Then Claude will start implementing the approved plan
+**Workaround**: After approving a plan, users have two options:
+1. **Wait for prompt**: Wait for Claude Code to show the "Accept Edits" prompt in terminal, then confirm
+2. **Manual switch**: Press `Shift+Tab` to switch to Accept Edits mode manually
 
-This is a limitation of the Claude Code hooks system, which can only approve/block tool calls but cannot trigger mode switches or execute additional commands automatically.
+This is a limitation of the Claude Code hooks system, which can only approve/block tool calls but cannot trigger mode switches automatically.
+
+### Hook Timeout (10 Minutes)
+
+The Claude Code hooks system has a **10-minute timeout** for PreToolUse hooks. If the review process takes longer than 10 minutes:
+
+**Behavior**:
+- The hook will timeout and Claude Code treats it as a **rejection** (block)
+- Claude will receive an error indicating the hook timed out
+- The review session remains open in the browser but becomes disconnected
+
+**Recommendation**:
+- Complete your review within 10 minutes
+- For complex plans, consider leaving quick comments first and then using the discussion feature for detailed feedback
 
 ## Data Persistence
 

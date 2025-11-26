@@ -102,12 +102,24 @@ stateDiagram-v2
 
 **问题**：Hook 返回 `approve` 后，Claude Code 不会自动从 Plan Mode 切换到 Accept Edits Mode。
 
-**解决方法**：批准计划后，用户需要手动：
-1. 等待 Claude 确认批准结果
-2. 使用 `/acceptedits` 命令或在 Claude Code 中切换到 "Auto Accept" 模式
-3. 然后 Claude 才会开始执行已批准的计划
+**解决方法**：批准计划后，用户有两种选择：
+1. **等待提示**：等待 Claude Code 在终端显示 "Accept Edits" 提示后确认
+2. **手动切换**：按 `Shift+Tab` 手动切换到 Accept Edits 模式
 
-这是 Claude Code hooks 系统的限制，它只能批准/阻止工具调用，无法自动触发模式切换或执行额外命令。
+这是 Claude Code hooks 系统的限制，它只能批准/阻止工具调用，无法自动触发模式切换。
+
+### Hook 超时限制（10 分钟）
+
+Claude Code hooks 系统对 PreToolUse hooks 有 **10 分钟超时限制**。如果审核时间超过 10 分钟：
+
+**超时行为**：
+- Hook 将超时，Claude Code 将其视为 **拒绝**（block）
+- Claude 将收到一个表示 hook 超时的错误
+- 浏览器中的审核会话仍保持打开状态，但会断开连接
+
+**建议**：
+- 在 10 分钟内完成审核
+- 对于复杂计划，可以先快速添加评论，然后再使用讨论功能进行详细反馈
 
 ## 数据持久化
 
