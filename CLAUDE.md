@@ -106,6 +106,15 @@ open → changes_requested → discussing → approved
 
 ## Release Process
 
+**版本号规范**（遵循 semver）：
+- 格式：`MAJOR.MINOR.PATCH[-PRERELEASE]`
+- 示例：`0.0.1-alpha.1`、`0.1.0`、`1.0.0`
+- 需同步更新的文件：
+  - `package.json`
+  - `client/package.json`
+  - `.claude-plugin/plugin.json`
+  - `.claude-plugin/marketplace.json`
+
 **分支策略**：
 - `develop` 分支：`.gitignore` 忽略 `dist/`，开发时不跟踪构建产物
 - `main` 分支：`.gitignore` **不忽略** `dist/`，构建产物被 git 跟踪，用于发布
@@ -113,21 +122,31 @@ open → changes_requested → discussing → approved
 **发布流程**（必须严格遵守）：
 
 ```bash
-# 1. 切换到 main 分支
+# 1. 在 develop 分支更新版本号（4 个文件）
+# 手动编辑或使用脚本更新 version 字段
+
+# 2. 提交版本号变更
+git add package.json client/package.json .claude-plugin/
+git commit -m "chore: bump version to x.x.x"
+
+# 3. 切换到 main 分支
 git checkout main
 
-# 2. 合并 develop
+# 4. 合并 develop
 git merge develop
 
-# 3. 重新构建（关键！切换分支后 dist/ 会被回滚到旧版本）
+# 5. 重新构建（关键！切换分支后 dist/ 会被回滚到旧版本）
 pnpm build
 
-# 4. 提交构建产物
+# 6. 提交构建产物
 git add dist/
-git commit -m "build: update dist"
+git commit -m "build: update dist for vx.x.x"
 
-# 5. 推送发布
+# 7. 推送发布
 git push origin main
+
+# 8. 切回 develop 继续开发
+git checkout develop
 ```
 
 ⚠️ **注意**：合并到 `main` 后必须重新执行 `pnpm build`，否则 `dist/` 是旧版本（被 git checkout 回滚）。

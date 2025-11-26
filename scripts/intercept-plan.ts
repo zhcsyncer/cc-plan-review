@@ -22,6 +22,9 @@ const SERVER_STARTUP_TIMEOUT = 10000; // 等待 server 启动的超时时间
 // Debug 模式：通过环境变量控制
 const DEBUG = process.env.CC_PLAN_REVIEW_DEBUG === '1' || process.env.DEBUG === '1';
 
+// 全局 session ID（解析输入后设置，用于日志区分多实例）
+let SESSION_ID = '';
+
 // 检测端口是否有服务在监听
 function isServerRunning(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -117,10 +120,23 @@ async function ensureServerRunning(): Promise<boolean> {
 function debug(message: string, data?: any) {
   if (!DEBUG) return;
   const timestamp = new Date().toISOString();
+  const sessionTag = SESSION_ID ? ` [${SESSION_ID.slice(0, 8)}]` : '';
   const logMessage = data !== undefined
-    ? `[DEBUG ${timestamp}] ${message}: ${JSON.stringify(data, null, 2)}`
-    : `[DEBUG ${timestamp}] ${message}`;
+    ? `[DEBUG ${timestamp}]${sessionTag} ${message}: ${JSON.stringify(data, null, 2)}`
+    : `[DEBUG ${timestamp}]${sessionTag} ${message}`;
   console.error(logMessage);
+}
+
+// Hook 响应结构
+interface HookResponse {
+  decision: 'approve' | 'block';
+  reason?: string;
+}
+
+// 统一响应函数：记录日志并输出 JSON 到 stdout
+function respondToAgent(response: HookResponse): void {
+  debug('>>> Response to agent', response);
+  console.log(JSON.stringify(response));
 }
 
 interface HookInput {
@@ -287,7 +303,10 @@ function waitForReviewWithSSE(reviewId: string, timeout: number): Promise<Review
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
-              debug('SSE event received', { type: currentEventType, data });
+              // 过滤 heartbeat 日志
+              if (currentEventType !== 'heartbeat') {
+                debug('SSE event received', { type: currentEventType, data });
+              }
               // 处理 approved 和 changes_requested 两种状态
               if (currentEventType === 'status_changed' &&
                   (data.status === 'approved' || data.status === 'changes_requested')) {
@@ -412,6 +431,7 @@ async function main() {
 
   try {
     const input: HookInput = JSON.parse(inputData);
+    SESSION_ID = input.session_id || '';
     debug('Parsed hook input', {
       tool_name: input.tool_name,
       hook_event_name: input.hook_event_name,
@@ -423,7 +443,7 @@ async function main() {
     // 只处理 ExitPlanMode
     if (input.tool_name !== 'ExitPlanMode') {
       debug('Skipping non-ExitPlanMode tool');
-      console.log(JSON.stringify({ decision: 'approve' }));
+      respondToAgent({ decision: 'approve' });
       process.exit(0);
     }
 
@@ -444,7 +464,7 @@ async function main() {
     if (!serverRunning) {
       debug('HTTP server not available, allowing through');
       console.error('HTTP server not available');
-      console.log(JSON.stringify({ decision: 'approve' }));
+      respondToAgent({ decision: 'approve' });
       process.exit(0);
     }
 
@@ -476,7 +496,7 @@ async function main() {
         // 服务器不可用时，允许通过
         debug('Failed to create review, allowing through', { error: String(error) });
         console.error(`Failed to create review: ${error}`);
-        console.log(JSON.stringify({ decision: 'approve' }));
+        respondToAgent({ decision: 'approve' });
         process.exit(0);
       }
     }
@@ -489,15 +509,14 @@ async function main() {
     if (result === 'timeout') {
       // 超时，返回 deny 并告知用户手动继续
       debug('Returning timeout block response');
-      const output = {
+      respondToAgent({
         decision: 'block',
         reason: `审核等待超时（Review ID: ${review.id}）。
 
 审核界面已在浏览器中打开。用户可能仍在审核中。
 
 请告知用户：完成审核后，在终端输入 "continue"，然后调用 get_review_result 工具获取审核结果。`
-      };
-      console.log(JSON.stringify(output));
+      });
       process.exit(0);
     }
 
@@ -528,16 +547,12 @@ async function main() {
         reason += `\n\n**最终批准的 Plan 内容**：\n\n${reviewResult.planContent}`;
       }
 
-      const approveResponse = {
-        decision: 'approve',
-        reason
-      };
-      console.log(JSON.stringify(approveResponse));
+      respondToAgent({ decision: 'approve', reason });
     } else {
       // 用户有反馈，阻止并返回评论
       debug('Review has feedback, blocking ExitPlanMode');
       const commentsText = formatComments(reviewResult.comments, reviewResult.planContent || '');
-      const output = {
+      respondToAgent({
         decision: 'block',
         reason: `用户对计划有以下修改建议（Review ID: ${reviewResult.id}）：
 
@@ -547,8 +562,7 @@ ${commentsText}
 <!-- REVIEW_ID: ${reviewResult.id} -->
 
 然后再次调用 ExitPlanMode 提交修订版本。`
-      };
-      console.log(JSON.stringify(output));
+      });
     }
 
     debug('Hook script completed successfully');
@@ -558,7 +572,7 @@ ${commentsText}
     // 出错时允许通过，避免阻塞用户
     debug('Hook error occurred, allowing through', { error: String(error) });
     console.error(`Hook error: ${error}`);
-    console.log(JSON.stringify({ decision: 'approve' }));
+    respondToAgent({ decision: 'approve' });
     process.exit(0);
   }
 }
