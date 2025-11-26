@@ -33973,6 +33973,51 @@ var ReviewManager = class {
       return null;
     }
   }
+  /**
+   * 获取所有未完成的 reviews (status !== 'approved')
+   * @param projectPath 可选，指定项目路径过滤
+   * @returns 未完成状态的 reviews 列表，按创建时间倒序排列
+   */
+  async getPendingReviews(projectPath) {
+    await ensureDataDirectory();
+    const searchDir = projectPath ? getProjectDataDir(projectPath) : DATA_DIR;
+    try {
+      await import_promises.default.access(searchDir);
+    } catch {
+      return [];
+    }
+    const results = [];
+    try {
+      const files = await import_promises.default.readdir(searchDir);
+      const jsonFiles = files.filter((f) => f.endsWith(".json"));
+      for (const file of jsonFiles) {
+        try {
+          const data = await import_promises.default.readFile(import_path.default.join(searchDir, file), "utf-8");
+          const review = JSON.parse(data);
+          if (review.status !== "approved") {
+            results.push(review);
+          }
+        } catch {
+        }
+      }
+    } catch (e) {
+      logger.error("Error reading reviews directory:", e);
+    }
+    if (!projectPath) {
+      try {
+        const entries = await import_promises.default.readdir(DATA_DIR, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            const decodedPath = "/" + entry.name.replace(/_/g, "/");
+            const projectReviews = await this.getPendingReviews(decodedPath);
+            results.push(...projectReviews);
+          }
+        }
+      } catch {
+      }
+    }
+    return results.sort((a, b) => b.createdAt - a.createdAt);
+  }
   async createReview(plan, projectPath) {
     const id = (0, import_crypto.randomUUID)();
     const versionHash = this.calculateContentHash(plan);
@@ -41408,6 +41453,228 @@ function processCreateParams2(params) {
   return { errorMap: customMap, description };
 }
 
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.22.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/uriTemplate.js
+var MAX_TEMPLATE_LENGTH = 1e6;
+var MAX_VARIABLE_LENGTH = 1e6;
+var MAX_TEMPLATE_EXPRESSIONS = 1e4;
+var MAX_REGEX_LENGTH = 1e6;
+var UriTemplate = class _UriTemplate {
+  /**
+   * Returns true if the given string contains any URI template expressions.
+   * A template expression is a sequence of characters enclosed in curly braces,
+   * like {foo} or {?bar}.
+   */
+  static isTemplate(str) {
+    return /\{[^}\s]+\}/.test(str);
+  }
+  static validateLength(str, max, context) {
+    if (str.length > max) {
+      throw new Error(`${context} exceeds maximum length of ${max} characters (got ${str.length})`);
+    }
+  }
+  get variableNames() {
+    return this.parts.flatMap((part) => typeof part === "string" ? [] : part.names);
+  }
+  constructor(template) {
+    _UriTemplate.validateLength(template, MAX_TEMPLATE_LENGTH, "Template");
+    this.template = template;
+    this.parts = this.parse(template);
+  }
+  toString() {
+    return this.template;
+  }
+  parse(template) {
+    const parts = [];
+    let currentText = "";
+    let i = 0;
+    let expressionCount = 0;
+    while (i < template.length) {
+      if (template[i] === "{") {
+        if (currentText) {
+          parts.push(currentText);
+          currentText = "";
+        }
+        const end = template.indexOf("}", i);
+        if (end === -1)
+          throw new Error("Unclosed template expression");
+        expressionCount++;
+        if (expressionCount > MAX_TEMPLATE_EXPRESSIONS) {
+          throw new Error(`Template contains too many expressions (max ${MAX_TEMPLATE_EXPRESSIONS})`);
+        }
+        const expr = template.slice(i + 1, end);
+        const operator = this.getOperator(expr);
+        const exploded = expr.includes("*");
+        const names = this.getNames(expr);
+        const name = names[0];
+        for (const name2 of names) {
+          _UriTemplate.validateLength(name2, MAX_VARIABLE_LENGTH, "Variable name");
+        }
+        parts.push({ name, operator, names, exploded });
+        i = end + 1;
+      } else {
+        currentText += template[i];
+        i++;
+      }
+    }
+    if (currentText) {
+      parts.push(currentText);
+    }
+    return parts;
+  }
+  getOperator(expr) {
+    const operators = ["+", "#", ".", "/", "?", "&"];
+    return operators.find((op) => expr.startsWith(op)) || "";
+  }
+  getNames(expr) {
+    const operator = this.getOperator(expr);
+    return expr.slice(operator.length).split(",").map((name) => name.replace("*", "").trim()).filter((name) => name.length > 0);
+  }
+  encodeValue(value, operator) {
+    _UriTemplate.validateLength(value, MAX_VARIABLE_LENGTH, "Variable value");
+    if (operator === "+" || operator === "#") {
+      return encodeURI(value);
+    }
+    return encodeURIComponent(value);
+  }
+  expandPart(part, variables) {
+    if (part.operator === "?" || part.operator === "&") {
+      const pairs = part.names.map((name) => {
+        const value2 = variables[name];
+        if (value2 === void 0)
+          return "";
+        const encoded2 = Array.isArray(value2) ? value2.map((v) => this.encodeValue(v, part.operator)).join(",") : this.encodeValue(value2.toString(), part.operator);
+        return `${name}=${encoded2}`;
+      }).filter((pair) => pair.length > 0);
+      if (pairs.length === 0)
+        return "";
+      const separator = part.operator === "?" ? "?" : "&";
+      return separator + pairs.join("&");
+    }
+    if (part.names.length > 1) {
+      const values2 = part.names.map((name) => variables[name]).filter((v) => v !== void 0);
+      if (values2.length === 0)
+        return "";
+      return values2.map((v) => Array.isArray(v) ? v[0] : v).join(",");
+    }
+    const value = variables[part.name];
+    if (value === void 0)
+      return "";
+    const values = Array.isArray(value) ? value : [value];
+    const encoded = values.map((v) => this.encodeValue(v, part.operator));
+    switch (part.operator) {
+      case "":
+        return encoded.join(",");
+      case "+":
+        return encoded.join(",");
+      case "#":
+        return "#" + encoded.join(",");
+      case ".":
+        return "." + encoded.join(".");
+      case "/":
+        return "/" + encoded.join("/");
+      default:
+        return encoded.join(",");
+    }
+  }
+  expand(variables) {
+    let result = "";
+    let hasQueryParam = false;
+    for (const part of this.parts) {
+      if (typeof part === "string") {
+        result += part;
+        continue;
+      }
+      const expanded = this.expandPart(part, variables);
+      if (!expanded)
+        continue;
+      if ((part.operator === "?" || part.operator === "&") && hasQueryParam) {
+        result += expanded.replace("?", "&");
+      } else {
+        result += expanded;
+      }
+      if (part.operator === "?" || part.operator === "&") {
+        hasQueryParam = true;
+      }
+    }
+    return result;
+  }
+  escapeRegExp(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  partToRegExp(part) {
+    const patterns = [];
+    for (const name2 of part.names) {
+      _UriTemplate.validateLength(name2, MAX_VARIABLE_LENGTH, "Variable name");
+    }
+    if (part.operator === "?" || part.operator === "&") {
+      for (let i = 0; i < part.names.length; i++) {
+        const name2 = part.names[i];
+        const prefix = i === 0 ? "\\" + part.operator : "&";
+        patterns.push({
+          pattern: prefix + this.escapeRegExp(name2) + "=([^&]+)",
+          name: name2
+        });
+      }
+      return patterns;
+    }
+    let pattern;
+    const name = part.name;
+    switch (part.operator) {
+      case "":
+        pattern = part.exploded ? "([^/]+(?:,[^/]+)*)" : "([^/,]+)";
+        break;
+      case "+":
+      case "#":
+        pattern = "(.+)";
+        break;
+      case ".":
+        pattern = "\\.([^/,]+)";
+        break;
+      case "/":
+        pattern = "/" + (part.exploded ? "([^/]+(?:,[^/]+)*)" : "([^/,]+)");
+        break;
+      default:
+        pattern = "([^/]+)";
+    }
+    patterns.push({ pattern, name });
+    return patterns;
+  }
+  match(uri) {
+    _UriTemplate.validateLength(uri, MAX_TEMPLATE_LENGTH, "URI");
+    let pattern = "^";
+    const names = [];
+    for (const part of this.parts) {
+      if (typeof part === "string") {
+        pattern += this.escapeRegExp(part);
+      } else {
+        const patterns = this.partToRegExp(part);
+        for (const { pattern: partPattern, name } of patterns) {
+          pattern += partPattern;
+          names.push({ name, exploded: part.exploded });
+        }
+      }
+    }
+    pattern += "$";
+    _UriTemplate.validateLength(pattern, MAX_REGEX_LENGTH, "Generated regex pattern");
+    const regex = new RegExp(pattern);
+    const match = uri.match(regex);
+    if (!match)
+      return null;
+    const result = {};
+    for (let i = 0; i < names.length; i++) {
+      const { name, exploded } = names[i];
+      const value = match[i + 1];
+      const cleanName = name.replace("*", "");
+      if (exploded && value.includes(",")) {
+        result[cleanName] = value.split(",");
+      } else {
+        result[cleanName] = value;
+      }
+    }
+    return result;
+  }
+};
+
 // node_modules/.pnpm/@modelcontextprotocol+sdk@1.22.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/toolNameValidation.js
 var TOOL_NAME_REGEX = /^[A-Za-z0-9._-]{1,128}$/;
 function validateToolName(name) {
@@ -42037,6 +42304,31 @@ var McpServer = class {
     if (this.isConnected()) {
       this.server.sendPromptListChanged();
     }
+  }
+};
+var ResourceTemplate = class {
+  constructor(uriTemplate, _callbacks) {
+    this._callbacks = _callbacks;
+    this._uriTemplate = typeof uriTemplate === "string" ? new UriTemplate(uriTemplate) : uriTemplate;
+  }
+  /**
+   * Gets the URI template pattern.
+   */
+  get uriTemplate() {
+    return this._uriTemplate;
+  }
+  /**
+   * Gets the list callback, if one was provided.
+   */
+  get listCallback() {
+    return this._callbacks.list;
+  }
+  /**
+   * Gets the callback for completing a specific URI template variable, if one was provided.
+   */
+  completeCallback(variable) {
+    var _a;
+    return (_a = this._callbacks.complete) === null || _a === void 0 ? void 0 : _a[variable];
   }
 };
 var EMPTY_OBJECT_JSON_SCHEMA = {
@@ -42751,6 +43043,7 @@ var McpService = class {
       version: "2.0.0"
     });
     this.setupTools();
+    this.setupResources();
   }
   setupTools() {
     this.server.tool(
@@ -42857,6 +43150,122 @@ This tool will BLOCK until user submits their answers (timeout: 10 minutes).`,
         }
       }
     );
+  }
+  /**
+   * 设置 MCP Resources
+   * 提供 review 数据的只读访问
+   *
+   * URI 格式：
+   * - review://project/{encodedProjectPath}/pending - 获取指定项目的 pending reviews
+   * - review://project/{encodedProjectPath}/current - 获取指定项目的 current review
+   * - review://{id} - 获取指定 ID 的 review 详情
+   *
+   * projectPath 编码规则：将路径中的 / 替换为 _，移除开头的 /
+   * 例如：/Users/foo/project -> Users_foo_project
+   */
+  setupResources() {
+    const encodeProjectPath2 = (path5) => {
+      return path5.replace(/^\//, "").replace(/\//g, "_").replace(/:/g, "_");
+    };
+    const decodeProjectPath = (encoded) => {
+      return "/" + encoded.replace(/_/g, "/");
+    };
+    this.server.resource(
+      "pending-reviews",
+      new ResourceTemplate("review://project/{projectPath}/pending", { list: void 0 }),
+      {
+        description: "All pending reviews for a specific project. projectPath is URL-encoded (/ replaced with _)",
+        mimeType: "application/json"
+      },
+      async (uri, { projectPath }) => {
+        const decodedPath = decodeProjectPath(projectPath);
+        logger.info(`Resource accessed: review://project/${projectPath}/pending (decoded: ${decodedPath})`);
+        const reviews = await this.reviewManager.getPendingReviews(decodedPath);
+        const summaries = reviews.map((r) => ({
+          id: r.id,
+          status: r.status,
+          createdAt: r.createdAt,
+          projectPath: r.projectPath,
+          commentsCount: r.comments.length,
+          unresolvedCount: r.comments.filter((c) => !c.resolved).length
+        }));
+        return {
+          contents: [{
+            uri: uri.href,
+            mimeType: "application/json",
+            text: JSON.stringify(summaries, null, 2)
+          }]
+        };
+      }
+    );
+    this.server.resource(
+      "current-review",
+      new ResourceTemplate("review://project/{projectPath}/current", { list: void 0 }),
+      {
+        description: "The most recent pending review for a specific project. projectPath is URL-encoded (/ replaced with _)",
+        mimeType: "application/json"
+      },
+      async (uri, { projectPath }) => {
+        const decodedPath = decodeProjectPath(projectPath);
+        logger.info(`Resource accessed: review://project/${projectPath}/current (decoded: ${decodedPath})`);
+        const reviews = await this.reviewManager.getPendingReviews(decodedPath);
+        const current = reviews[0];
+        if (!current) {
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: "application/json",
+              text: JSON.stringify({ message: "No pending review found for this project" })
+            }]
+          };
+        }
+        return {
+          contents: [{
+            uri: uri.href,
+            mimeType: "application/json",
+            text: JSON.stringify({
+              id: current.id,
+              status: current.status,
+              createdAt: current.createdAt,
+              projectPath: current.projectPath,
+              planContent: current.planContent,
+              comments: current.comments,
+              currentVersion: current.currentVersion
+            }, null, 2)
+          }]
+        };
+      }
+    );
+    this.server.resource(
+      "review-detail",
+      new ResourceTemplate("review://{id}", { list: void 0 }),
+      {
+        description: "Detailed information for a specific review by ID",
+        mimeType: "application/json"
+      },
+      async (uri, { id }) => {
+        const reviewId = id;
+        logger.info(`Resource accessed: review://${reviewId}`);
+        const review = await this.reviewManager.getReview(reviewId);
+        if (!review) {
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: "application/json",
+              text: JSON.stringify({ error: `Review ${reviewId} not found` })
+            }]
+          };
+        }
+        return {
+          contents: [{
+            uri: uri.href,
+            mimeType: "application/json",
+            text: JSON.stringify(review, null, 2)
+          }]
+        };
+      }
+    );
+    logger.info("MCP Resources registered: review://project/{projectPath}/pending, review://project/{projectPath}/current, review://{id}");
   }
   async handleRequest(req, res) {
     try {
