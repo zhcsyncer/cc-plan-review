@@ -514,16 +514,24 @@ async function main() {
     if (reviewResult.approvedDirectly || unresolvedCount === 0) {
       // 用户直接批准，允许 ExitPlanMode 执行
       debug('Review approved, allowing ExitPlanMode');
-      const approveResponse: { decision: string; reason: string } = {
-        decision: 'approve',
-        reason: '用户已在 GUI 中批准计划。'
-      };
-      // 如果有 planContent，附加到 reason 中，确保 agent 知道最终批准的版本
-      if (reviewResult.planContent) {
-        approveResponse.reason = `用户已批准计划。最终批准的 Plan 内容如下：
 
-${reviewResult.planContent}`;
+      // 构建批准指令
+      let reason = `用户已批准计划。
+
+**重要指令**：
+1. 退出 Plan Mode
+2. 切换到 Auto Accept Mode（自动接受编辑模式）
+3. 按照计划开始执行`;
+
+      // 如果有 planContent，附加到 reason 中
+      if (reviewResult.planContent) {
+        reason += `\n\n**最终批准的 Plan 内容**：\n\n${reviewResult.planContent}`;
       }
+
+      const approveResponse = {
+        decision: 'approve',
+        reason
+      };
       console.log(JSON.stringify(approveResponse));
     } else {
       // 用户有反馈，阻止并返回评论
