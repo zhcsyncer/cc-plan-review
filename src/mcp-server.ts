@@ -68,11 +68,11 @@ Review ID: ${review.id}
 2. 收到 ExitPlanMode 被阻止的消息后，需要获取详细反馈时
 
 返回内容根据状态不同：
-- pending: 用户尚未提交审核
-- submitted_feedback: 返回用户的所有评论
-- questions_pending: 等待用户回答问题
+- open: 用户尚未提交审核
+- changes_requested: 返回用户的所有评论
+- discussing: 等待用户回答问题
 - approved: 计划已批准，可以开始执行
-- revised: 等待用户审核新版本`,
+- updated: 等待用户审核新版本`,
         {
             reviewId: z.string().optional().describe("Review ID。如果省略，获取当前项目最新的审核结果"),
             projectPath: z.string().optional().describe("项目路径，用于查找该项目的审核记录")
@@ -95,22 +95,22 @@ Review ID: ${review.id}
 
             // 根据状态返回不同内容
             switch (review.status) {
-                case 'pending':
-                    logger.info(`get_review_result: Review ${review.id} is pending`);
+                case 'open':
+                    logger.info(`get_review_result: Review ${review.id} is open`);
                     return {
                         content: [{ type: "text", text: JSON.stringify({
                             reviewId: review.id,
-                            status: 'pending',
+                            status: 'open',
                             message: "User has not submitted the review yet. Please wait for the user to finish."
                         }) }]
                     };
 
-                case 'questions_pending':
-                    logger.info(`get_review_result: Review ${review.id} has questions pending`);
+                case 'discussing':
+                    logger.info(`get_review_result: Review ${review.id} is discussing`);
                     return {
                         content: [{ type: "text", text: JSON.stringify({
                             reviewId: review.id,
-                            status: 'questions_pending',
+                            status: 'discussing',
                             message: "Waiting for user to answer your questions. Please wait."
                         }) }]
                     };
@@ -125,17 +125,17 @@ Review ID: ${review.id}
                         }) }]
                     };
 
-                case 'revised':
-                    logger.info(`get_review_result: Review ${review.id} revised, waiting for user`);
+                case 'updated':
+                    logger.info(`get_review_result: Review ${review.id} updated, waiting for user`);
                     return {
                         content: [{ type: "text", text: JSON.stringify({
                             reviewId: review.id,
-                            status: 'revised',
+                            status: 'updated',
                             message: "Waiting for user to review the new revision. Please wait."
                         }) }]
                     };
 
-                case 'submitted_feedback':
+                case 'changes_requested':
                 default:
                     // 返回用户的 comments
                     const unresolvedComments = (review.comments || []).filter(c => !c.resolved);
@@ -145,7 +145,7 @@ Review ID: ${review.id}
                         return {
                             content: [{ type: "text", text: JSON.stringify({
                                 reviewId: review.id,
-                                status: 'submitted_feedback',
+                                status: 'changes_requested',
                                 comments: [],
                                 message: "No unresolved comments. You can call update_plan to submit new version."
                             }) }]
@@ -163,7 +163,7 @@ Review ID: ${review.id}
                     return {
                         content: [{ type: "text", text: JSON.stringify({
                             reviewId: review.id,
-                            status: 'submitted_feedback',
+                            status: 'changes_requested',
                             comments: commentsData
                         }) }]
                     };
@@ -182,7 +182,7 @@ Question types:
 - choice: Provide options for user to choose (shows radio buttons)
 - accepted: Acknowledge the comment, provide resolution message
 
-After calling this, status changes to 'questions_pending'.
+After calling this, status changes to 'discussing'.
 Wait for user to answer, then call get_review_result again.`,
         {
             reviewId: z.string().describe("The ID of the review."),

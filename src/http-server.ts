@@ -325,7 +325,7 @@ export class HttpServer {
 
         const previousStatus = review.status;
 
-        // 直接设置为 approved 状态，忽略状态验证
+        // 直接设置为 approved 状态（状态名不变）
         review.status = 'approved';
         review.approvedDirectly = true;
         await this.reviewManager._save(review);

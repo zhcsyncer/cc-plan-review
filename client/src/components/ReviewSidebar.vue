@@ -3,7 +3,7 @@ import { ref, computed } from 'vue';
 import { Trash2, Edit2, Check, X } from 'lucide-vue-next';
 import QuestionInput from './QuestionInput.vue';
 
-type ReviewStatus = 'pending' | 'submitted_feedback' | 'questions_pending' | 'approved' | 'revised';
+type ReviewStatus = 'open' | 'changes_requested' | 'discussing' | 'approved' | 'updated';
 
 interface CommentQuestion {
   type: 'clarification' | 'choice' | 'accepted';
@@ -57,9 +57,9 @@ const buttonText = computed(() => {
   if (props.confirmPending) return 'Click Again to Confirm';
 
   switch (props.reviewStatus) {
-    case 'questions_pending':
+    case 'discussing':
       return allQuestionsAnswered.value ? 'Submit Answers' : 'Answer All Questions';
-    case 'revised':
+    case 'updated':
       return unresolvedComments.value.length > 0 ? 'Submit Feedback' : 'Approve';
     default:
       return unresolvedComments.value.length > 0 ? 'Submit Feedback' : 'Approve';
@@ -67,7 +67,7 @@ const buttonText = computed(() => {
 });
 
 const buttonDisabled = computed(() => {
-  if (props.reviewStatus === 'questions_pending' && !allQuestionsAnswered.value) {
+  if (props.reviewStatus === 'discussing' && !allQuestionsAnswered.value) {
     return true;
   }
   return false;

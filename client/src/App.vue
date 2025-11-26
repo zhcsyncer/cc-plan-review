@@ -71,7 +71,7 @@ const reviewId = ref<string>('');
 const planContent = ref<string>('');
 const comments = ref<Comment[]>([]);
 const loading = ref(true);
-const reviewStatus = ref<ReviewStatus>('pending');
+const reviewStatus = ref<ReviewStatus>('open');
 const error = ref('');
 const activeCommentId = ref<string | null>(null);
 
@@ -91,7 +91,7 @@ const sseConnected = ref(false);
 
 // 计算属性：是否为只读模式
 const isReadOnly = computed(() => {
-  return reviewStatus.value === 'submitted_feedback' || reviewStatus.value === 'approved';
+  return reviewStatus.value === 'changes_requested' || reviewStatus.value === 'approved';
 });
 
 // 计算属性：是否显示已提交界面
@@ -101,12 +101,12 @@ const showSubmittedView = computed(() => {
 
 // 计算属性：是否处于等待 Agent 状态
 const isWaitingForAgent = computed(() => {
-  return reviewStatus.value === 'submitted_feedback';
+  return reviewStatus.value === 'changes_requested';
 });
 
 // 计算属性：是否有待回答的问题
 const hasQuestionsToAnswer = computed(() => {
-  return reviewStatus.value === 'questions_pending';
+  return reviewStatus.value === 'discussing';
 });
 
 // 主题管理
@@ -153,7 +153,7 @@ function handleSSEConnected(data: { review: any }) {
   comments.value = review.comments || [];
   currentVersionHash.value = review.currentVersion;
   selectedVersion.value = review.currentVersion;
-  reviewStatus.value = review.status || 'pending';
+  reviewStatus.value = review.status || 'open';
 
   if (review.documentVersions) {
     const currentContent = review.documentVersions.find(
@@ -283,7 +283,7 @@ async function fetchReview() {
   comments.value = data.comments || [];
   currentVersionHash.value = data.currentVersion;
   selectedVersion.value = data.currentVersion;
-  reviewStatus.value = data.status || 'pending';
+  reviewStatus.value = data.status || 'open';
 
   if (data.documentVersions) {
     const currentContent = data.documentVersions.find(
@@ -530,13 +530,13 @@ function onHighlightClick(id: string) {
         <div v-if="reviewStatus === 'approved'" class="text-green-600 font-medium flex items-center gap-2">
           <span>✓ Approved</span>
         </div>
-        <div v-else-if="reviewStatus === 'submitted_feedback'" class="text-orange-500 font-medium flex items-center gap-2 animate-pulse">
+        <div v-else-if="reviewStatus === 'changes_requested'" class="text-orange-500 font-medium flex items-center gap-2 animate-pulse">
           <span>⏳ Waiting for Agent...</span>
         </div>
-        <div v-else-if="reviewStatus === 'questions_pending'" class="text-purple-600 font-medium flex items-center gap-2">
+        <div v-else-if="reviewStatus === 'discussing'" class="text-purple-600 font-medium flex items-center gap-2">
           <span>❓ Questions from Agent</span>
         </div>
-        <div v-else-if="reviewStatus === 'revised'" class="text-blue-600 font-medium flex items-center gap-2">
+        <div v-else-if="reviewStatus === 'updated'" class="text-blue-600 font-medium flex items-center gap-2">
           <span>📝 New Revision Available</span>
         </div>
       </div>

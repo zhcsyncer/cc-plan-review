@@ -120,13 +120,13 @@ export interface Comment {
   resolution?: string;            // 解决说明
 }
 
-// Review 状态枚举
+// Review 状态枚举 (PR 风格命名)
 export type ReviewStatus =
-  | 'pending'            // 初始状态：等待用户审阅
-  | 'submitted_feedback' // 用户提交了反馈，等待 Agent 处理
-  | 'questions_pending'  // Agent 提出了 questions，等待用户回答
-  | 'approved'           // 用户批准通过（终态）
-  | 'revised';           // Agent 提交了修订版本，等待用户再次审阅
+  | 'open'              // 打开状态，等待用户审阅
+  | 'changes_requested' // 请求更改，用户提交了反馈，等待 Agent 处理
+  | 'discussing'        // 讨论中，Agent 提出了问题，等待用户回答
+  | 'approved'          // 已批准（终态）
+  | 'updated';          // 已更新，Agent 提交了修订版本，等待用户再次审阅
 
 export interface Review {
   id: string;
@@ -259,7 +259,7 @@ export class ReviewManager {
     const review: Review = {
       id,
       createdAt: Date.now(),
-      status: 'pending',
+      status: 'open',
       planContent: plan,
       comments: [],
       documentVersions: [initialVersion],
@@ -339,7 +339,7 @@ export class ReviewManager {
     }
 
     // 验证状态转换合法性
-    if (review.status !== 'pending' && review.status !== 'revised' && review.status !== 'questions_pending') {
+    if (review.status !== 'open' && review.status !== 'updated' && review.status !== 'discussing') {
         logger.error(`Submit feedback failed: Invalid status transition from ${review.status}`);
         throw new Error(`Cannot submit feedback from status: ${review.status}`);
     }
@@ -350,7 +350,7 @@ export class ReviewManager {
         logger.warn(`Submit feedback: No unresolved comments, consider using approveReview instead`);
     }
 
-    review.status = 'submitted_feedback';
+    review.status = 'changes_requested';
     await this._save(review);
     logger.info(`Submitted feedback for review ${reviewId}`);
     return review;
@@ -365,7 +365,7 @@ export class ReviewManager {
     }
 
     // 验证状态转换合法性
-    if (review.status !== 'pending' && review.status !== 'revised') {
+    if (review.status !== 'open' && review.status !== 'updated') {
         logger.error(`Approve review failed: Invalid status transition from ${review.status}`);
         throw new Error(`Cannot approve from status: ${review.status}`);
     }
@@ -393,8 +393,8 @@ export class ReviewManager {
     }
 
     // 验证状态
-    if (review.status !== 'submitted_feedback') {
-        logger.error(`Ask questions failed: Invalid status ${review.status}, expected submitted_feedback`);
+    if (review.status !== 'changes_requested') {
+        logger.error(`Ask questions failed: Invalid status ${review.status}, expected changes_requested`);
         throw new Error(`Cannot ask questions from status: ${review.status}`);
     }
 
@@ -430,7 +430,7 @@ export class ReviewManager {
       }
     }
 
-    review.status = 'questions_pending';
+    review.status = 'discussing';
     await this._save(review);
     logger.info(`Asked questions for review ${reviewId}, ${questions.length} questions`);
     return review;
@@ -481,8 +481,8 @@ export class ReviewManager {
     }
 
     // Agent 提交新版本时验证状态
-    if (options?.author === 'agent' && review.status !== 'submitted_feedback') {
-        logger.error(`Update plan failed: Agent can only update when status is submitted_feedback, current: ${review.status}`);
+    if (options?.author === 'agent' && review.status !== 'changes_requested') {
+        logger.error(`Update plan failed: Agent can only update when status is changes_requested, current: ${review.status}`);
         throw new Error(`Agent cannot update plan from status: ${review.status}`);
     }
 
@@ -521,10 +521,10 @@ export class ReviewManager {
       }
     }
 
-    // Agent 更新时自动转为 revised 状态
-    if (options?.author === 'agent' && review.status === 'submitted_feedback') {
-      review.status = 'revised';
-      logger.info(`Review ${reviewId} status changed to revised`);
+    // Agent 更新时自动转为 updated 状态
+    if (options?.author === 'agent' && review.status === 'changes_requested') {
+      review.status = 'updated';
+      logger.info(`Review ${reviewId} status changed to updated`);
     }
 
     // TODO: 调整评论位置（在 Phase 5 实现）

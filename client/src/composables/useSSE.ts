@@ -8,13 +8,13 @@ export type SSEEventType =
   | 'questions_updated'
   | 'heartbeat';
 
-// Review 状态类型
+// Review 状态类型 (PR 风格命名)
 export type ReviewStatus =
-  | 'pending'
-  | 'submitted_feedback'
-  | 'questions_pending'
-  | 'approved'
-  | 'revised';
+  | 'open'              // 打开状态，等待用户审阅
+  | 'changes_requested' // 请求更改
+  | 'discussing'        // 讨论中
+  | 'approved'          // 已批准
+  | 'updated';          // 已更新
 
 // 事件数据类型
 export interface StatusChangedData {
