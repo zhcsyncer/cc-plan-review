@@ -12,14 +12,34 @@
 
 ## 安装
 
+### 通过 Claude Code CLI
 ```bash
-# 克隆并构建
+# 添加 GitHub marketplace
+claude plugin marketplace add zhcsyncer/cc-plan-review
+
+# 安装插件
+claude plugin install cc-plan-review@cc-plan-review-marketplace
+```
+
+### 通过 Claude Code 交互式命令
+```
+/plugin marketplace add zhcsyncer/cc-plan-review
+/plugin install cc-plan-review@cc-plan-review-marketplace
+```
+
+或直接使用 `/plugin` 命令进入交互式安装流程。
+
+### 更新插件
+```bash
+claude plugin marketplace update
+```
+
+### 从源码安装（开发者）
+```bash
 git clone https://github.com/zhcsyncer/cc-plan-review.git
 cd cc-plan-review
 pnpm install && pnpm build
-
-# 安装为 Claude Code 插件
-claude plugin add /path/to/cc-plan-review
+claude plugin add ./cc-plan-review
 ```
 
 ## 工作原理
