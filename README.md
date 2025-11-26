@@ -12,14 +12,34 @@ A Claude Code plugin that provides human review capability for Plan Mode. The pl
 
 ## Installation
 
+### Via Claude Code CLI
 ```bash
-# Clone and build
+# Add GitHub marketplace
+claude plugin marketplace add zhcsyncer/cc-plan-review
+
+# Install the plugin
+claude plugin install cc-plan-review@cc-plan-review-marketplace
+```
+
+### Via Claude Code Interactive
+```
+/plugin marketplace add zhcsyncer/cc-plan-review
+/plugin install cc-plan-review@cc-plan-review-marketplace
+```
+
+Or simply use `/plugin` and follow the interactive prompts.
+
+### Update
+```bash
+claude plugin marketplace update
+```
+
+### From Source (Development)
+```bash
 git clone https://github.com/zhcsyncer/cc-plan-review.git
 cd cc-plan-review
 pnpm install && pnpm build
-
-# Install as Claude Code plugin
-claude plugin add /path/to/cc-plan-review
+claude plugin add ./cc-plan-review
 ```
 
 ## How It Works

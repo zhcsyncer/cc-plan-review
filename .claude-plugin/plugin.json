@@ -1,6 +1,5 @@
 {
   "name": "cc-plan-review",
   "version": "1.0.0",
-  "description": "GUI-based plan review for Claude Code with ExitPlanMode interception",
-  "hooks": "./hooks/hooks.json"
+  "description": "GUI-based plan review for Claude Code with ExitPlanMode interception"
 }

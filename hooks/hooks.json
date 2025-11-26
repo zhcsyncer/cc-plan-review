@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CC_PLAN_REVIEW_DEBUG=1 node ${CLAUDE_PLUGIN_ROOT}dist/scripts/intercept-plan.js 2>>${CLAUDE_PLUGIN_ROOT}logs/hook.log",
+            "command": "CC_PLAN_REVIEW_DEBUG=1 node ${CLAUDE_PLUGIN_ROOT}/dist/scripts/intercept-plan.js 2>>${CLAUDE_PLUGIN_ROOT}/logs/hook.log",
             "timeout": 600
           }
         ]
