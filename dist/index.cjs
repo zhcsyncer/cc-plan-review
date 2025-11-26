@@ -35510,11 +35510,15 @@ var HttpServer = class {
       sseManager.sendConnectedEvent(clientId, review);
       logger.info(`SSE: Client connected for review ${req.params.id}`);
     });
-    this.app.post("/api/reviews/:id/request-changes", async (req, res) => {
+    this.app.post("/api/reviews/:id/submit", async (req, res) => {
       try {
-        const { note } = req.body || {};
+        const { note, passThrough } = req.body || {};
         const review = await this.reviewManager.getReview(req.params.id);
-        const previousStatus = review?.status;
+        if (!review) {
+          res.status(404).json({ error: "Review not found" });
+          return;
+        }
+        const previousStatus = review.status;
         if (note && typeof note === "string" && note.trim()) {
           await this.reviewManager.addComment(req.params.id, {
             quote: "",
@@ -35524,67 +35528,39 @@ var HttpServer = class {
           });
           logger.info(`Added global note to review ${req.params.id}`);
         }
-        const updatedReview = await this.reviewManager.submitFeedback(req.params.id);
-        if (previousStatus && previousStatus !== updatedReview.status) {
-          reviewEventBus.emitStatusChanged(req.params.id, updatedReview.status, previousStatus);
-        }
-        res.json({ status: "ok", reviewStatus: updatedReview.status });
-      } catch (e) {
-        const statusCode = e.message.includes("not found") ? 404 : 400;
-        res.status(statusCode).json({ error: e.message });
-      }
-    });
-    this.app.post("/api/reviews/:id/approve", async (req, res) => {
-      try {
-        const { note, passThrough } = req.body || {};
-        const review = await this.reviewManager.getReview(req.params.id);
-        if (!review) {
-          res.status(404).json({ error: "Review not found" });
-          return;
-        }
-        const previousStatus = review.status;
-        review.status = "approved";
-        review.approvedDirectly = true;
+        const hasUnresolvedComments = review.comments.some((c) => !c.resolved);
         if (passThrough) {
+          review.status = "approved";
+          review.approvedDirectly = true;
           review.passThrough = true;
+          await this.reviewManager._save(review);
           logger.info(`Review ${req.params.id} approved with passThrough mode (${review.comments.filter((c) => !c.resolved).length} suggestions)`);
-        }
-        if (note) {
-          review.approvalNote = note;
-        }
-        await this.reviewManager._save(review);
-        if (previousStatus !== review.status) {
-          reviewEventBus.emitStatusChanged(req.params.id, review.status, previousStatus, review.planContent);
-        }
-        logger.info(`Review ${req.params.id} approved directly`);
-        res.json({ status: "ok", reviewStatus: review.status, passThrough: !!passThrough });
-      } catch (e) {
-        res.status(500).json({ error: e.message });
-      }
-    });
-    this.app.post("/api/reviews/:id/ask-questions", async (req, res) => {
-      try {
-        const { questions } = req.body;
-        if (!questions || !Array.isArray(questions)) {
-          res.status(400).json({ error: "Missing or invalid 'questions' array" });
+          if (previousStatus !== review.status) {
+            reviewEventBus.emitStatusChanged(req.params.id, review.status, previousStatus, review.planContent);
+          }
+          res.json({ status: "ok", reviewStatus: review.status, passThrough: true });
           return;
         }
-        const review = await this.reviewManager.getReview(req.params.id);
-        const previousStatus = review?.status;
-        const updatedReview = await this.reviewManager.askQuestions(req.params.id, questions);
-        if (previousStatus && previousStatus !== updatedReview.status) {
-          reviewEventBus.emitStatusChanged(req.params.id, updatedReview.status, previousStatus);
-        }
-        const questionsData = questions.map((q) => ({
-          commentId: q.commentId,
-          question: {
-            type: q.type,
-            message: q.message,
-            options: q.options
+        if (hasUnresolvedComments) {
+          const updatedReview = await this.reviewManager.submitFeedback(req.params.id);
+          if (previousStatus && previousStatus !== updatedReview.status) {
+            reviewEventBus.emitStatusChanged(req.params.id, updatedReview.status, previousStatus);
           }
-        }));
-        reviewEventBus.emitQuestionsUpdated(req.params.id, questionsData);
-        res.json({ status: "ok", reviewStatus: updatedReview.status });
+          logger.info(`Review ${req.params.id} submitted with changes requested`);
+          res.json({ status: "ok", reviewStatus: updatedReview.status });
+        } else {
+          review.status = "approved";
+          review.approvedDirectly = true;
+          if (note) {
+            review.approvalNote = note;
+          }
+          await this.reviewManager._save(review);
+          if (previousStatus !== review.status) {
+            reviewEventBus.emitStatusChanged(req.params.id, review.status, previousStatus, review.planContent);
+          }
+          logger.info(`Review ${req.params.id} approved directly`);
+          res.json({ status: "ok", reviewStatus: review.status });
+        }
       } catch (e) {
         const statusCode = e.message.includes("not found") ? 404 : 400;
         res.status(statusCode).json({ error: e.message });
