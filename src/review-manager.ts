@@ -7,13 +7,18 @@ import { logger } from './logger.js';
 // 全局数据目录，与 Claude Code 配置放在一起
 const DATA_DIR = path.join(os.homedir(), '.claude', 'cc-plan-review', 'reviews');
 
-// Ensure data dir exists
-try {
+// 初始化数据目录（在第一次使用时调用）
+let dataDirectoryInitialized = false;
+async function ensureDataDirectory() {
+  if (dataDirectoryInitialized) return;
+  try {
     await fs.mkdir(DATA_DIR, { recursive: true });
     logger.info(`Data directory initialized at ${DATA_DIR}`);
-} catch (e) {
+  } catch (e) {
     // ignore if exists
     logger.debug(`Data directory already exists at ${DATA_DIR}`);
+  }
+  dataDirectoryInitialized = true;
 }
 
 // 项目路径编码函数
@@ -158,6 +163,7 @@ export class ReviewManager {
   }
 
   async _save(review: Review): Promise<void> {
+    await ensureDataDirectory();
     const dir = review.projectPath
       ? await this.ensureProjectDir(review.projectPath)
       : DATA_DIR;

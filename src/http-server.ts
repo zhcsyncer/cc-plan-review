@@ -1,6 +1,5 @@
 import express, { Request, Response } from "express";
 import path from "path";
-import { fileURLToPath } from "url";
 import { AddressInfo } from "net";
 import open from "open";
 import { ReviewManager } from "./review-manager.js";
@@ -9,8 +8,8 @@ import { logger } from "./logger.js";
 import { sseManager } from "./sse-manager.js";
 import { reviewEventBus } from "./event-bus.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// 获取当前目录（兼容 CJS 打包）
+const currentDir = typeof __dirname !== 'undefined' ? __dirname : path.dirname(new URL(import.meta.url).pathname);
 
 export interface HttpServerOptions {
   enableMcpEndpoint?: boolean;  // 是否启用 /mcp 端点，默认 true
@@ -90,7 +89,7 @@ export class HttpServer {
     });
 
     // Serve static files
-    this.app.use(express.static(path.join(__dirname, "client")));
+    this.app.use(express.static(path.join(currentDir, "client")));
   }
 
   private setupRoutes() {
@@ -469,7 +468,7 @@ export class HttpServer {
 
     // SPA Fallback
     this.app.get(/^\/review(\/.*)?$/, (req: Request, res: Response) => {
-        res.sendFile(path.join(__dirname, "client/index.html"));
+        res.sendFile(path.join(currentDir, "client/index.html"));
     });
   }
 

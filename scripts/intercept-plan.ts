@@ -52,8 +52,8 @@ function isServerRunning(): Promise<boolean> {
 async function startHttpServer(): Promise<boolean> {
   debug('Starting HTTP server...');
 
-  // http-only.js 与当前脚本在同一目录的上一级
-  const httpOnlyPath = path.join(__dirname, '..', 'http-only.js');
+  // http-only.cjs 与当前脚本在同一目录的上一级
+  const httpOnlyPath = path.join(__dirname, '..', 'http-only.cjs');
   debug('HTTP server path', { httpOnlyPath });
 
   return new Promise((resolve) => {
