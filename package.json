@@ -24,9 +24,10 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx watch src/index.ts",
-    "build": "pnpm run build:server && pnpm run build:scripts && pnpm run build:client",
-    "build:server": "tsc",
-    "build:scripts": "tsc -p scripts/tsconfig.json",
+    "build": "pnpm run build:server && pnpm run build:http-only && pnpm run build:scripts && pnpm run build:client",
+    "build:server": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/index.js --banner:js=\"#!/usr/bin/env node\"",
+    "build:http-only": "esbuild src/http-only.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/http-only.js --banner:js=\"#!/usr/bin/env node\"",
+    "build:scripts": "esbuild scripts/intercept-plan.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/scripts/intercept-plan.js",
     "build:client": "cd client && pnpm install && pnpm run build",
     "prepublishOnly": "pnpm run build",
     "start": "node dist/index.js"
@@ -53,6 +54,7 @@
   "devDependencies": {
     "@types/express": "5.0.5",
     "@types/node": "24.10.1",
+    "esbuild": "0.27.0",
     "tsx": "4.20.6",
     "typescript": "5.9.3"
   }

@@ -1,12 +1,11 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import os from 'os';
 import { randomUUID, createHash } from 'crypto';
 import { logger } from './logger.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const DATA_DIR = path.join(__dirname, '../.reviews'); // Adjusted path since we are in src/
+// 全局数据目录，与 Claude Code 配置放在一起
+const DATA_DIR = path.join(os.homedir(), '.claude', 'cc-plan-review', 'reviews');
 
 // Ensure data dir exists
 try {
