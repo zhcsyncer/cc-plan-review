@@ -9,10 +9,9 @@ import http from 'http';
 import net from 'net';
 import { spawn } from 'child_process';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// CJS 环境下 __dirname 由 Node.js/esbuild 原生提供
+declare const __dirname: string;
 
 const SERVER_HOST = 'localhost';
 const SERVER_PORT = 3030;
