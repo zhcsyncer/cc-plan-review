@@ -1,5 +1,5 @@
 {
-  "name": "cc-plan-review-marketplace",
+  "name": "cc-collab-plugins",
   "owner": {
     "name": "zhcsyncer",
     "email": "zhcsyncer@gmail.com"
@@ -8,7 +8,7 @@
     {
       "name": "cc-plan-review",
       "description": "GUI-based plan review for Claude Code with ExitPlanMode interception",
-      "version": "0.0.1-alpha.4",
+      "version": "0.0.1-alpha.5",
       "source": {
         "source": "github",
         "repo": "zhcsyncer/cc-plan-review",

@@ -63,6 +63,9 @@ const SHIFT_SYMBOL_KEYS = new Set(['!', '@', '#', '$', '%', '^', '&', '*', '(', 
 
 // 全局键盘事件处理
 function handleGlobalKeydown(e: KeyboardEvent) {
+  // 忽略重复事件（按住键不放时触发）
+  if (e.repeat) return;
+
   const key = e.key.toLowerCase();
 
   // 遍历所有绑定，查找匹配的
@@ -72,12 +75,18 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     // 检查按键是否匹配
     if (key !== bindingKey && e.code.toLowerCase() !== bindingKey) continue;
 
-    // 检查修饰键
+    // 检查修饰键（简化逻辑）
     const modifiers = binding.modifiers || {};
+
+    // mod 键：Mac 上是 Cmd，Windows 上是 Ctrl
     const modMatch = modifiers.mod
       ? (isMac.value ? e.metaKey : e.ctrlKey)
-      : !(isMac.value ? e.metaKey : e.ctrlKey) || modifiers.ctrl;
-    const ctrlMatch = modifiers.ctrl ? e.ctrlKey : !e.ctrlKey || modifiers.mod;
+      : !(isMac.value ? e.metaKey : e.ctrlKey);
+
+    // ctrl 键：Mac 上 mod 使用 Cmd 时，不需要检查 Ctrl
+    const ctrlMatch = modifiers.ctrl
+      ? e.ctrlKey
+      : (isMac.value && modifiers.mod ? true : !e.ctrlKey);
 
     // 对于符号键（需要 Shift 产生），如果没有声明 shift 修饰符，则忽略 shiftKey 检查
     const isSymbolKey = SHIFT_SYMBOL_KEYS.has(binding.key);
@@ -87,9 +96,7 @@ function handleGlobalKeydown(e: KeyboardEvent) {
 
     const altMatch = modifiers.alt ? e.altKey : !e.altKey;
 
-    if (!modMatch || !shiftMatch || !altMatch) continue;
-    // ctrl 检查需要特殊处理（Mac 上 mod=Cmd，不需要 Ctrl）
-    if (modifiers.ctrl && !e.ctrlKey) continue;
+    if (!modMatch || !shiftMatch || !altMatch || !ctrlMatch) continue;
 
     // 检查是否在输入框内
     if (!binding.enableInInput && isInputFocused()) continue;

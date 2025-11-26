@@ -484,7 +484,7 @@ function addComment() {
   @apply w-full mb-6 border-collapse;
 }
 :deep(th), :deep(td) {
-  @apply border border-border-light dark:border-border-dark px-4 py-2 text-left;
+  @apply border border-border-light dark:border-border-dark px-4 py-2 text-left text-text-primary-light dark:text-text-primary-dark;
 }
 :deep(th) {
   @apply bg-app-surface-alt-light dark:bg-app-surface-alt-dark font-semibold;
