@@ -1,0 +1,1 @@
+(self.webpackChunkclient=self.webpackChunkclient||[]).push([["10"],{84940:function(e,c,t){"use strict";t.r(c),t.d(c,{ArchitectureModule:function(){return r.s},createArchitectureServices:function(){return r.i}});var r=t("45226");t("86857")}}]);

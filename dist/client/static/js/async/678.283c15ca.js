@@ -1,0 +1,1 @@
+(self.webpackChunkclient=self.webpackChunkclient||[]).push([["678"],{58139:function(e,c,n){"use strict";n.r(c),n.d(c,{PacketModule:function(){return t.$},createPacketServices:function(){return t.g}});var t=n("62415");n("86857")}}]);

@@ -1,0 +1,1 @@
+(self.webpackChunkclient=self.webpackChunkclient||[]).push([["12"],{69369:function(e,n,c){"use strict";c.r(n),c.d(n,{InfoModule:function(){return t.H},createInfoServices:function(){return t.M}});var t=c("6412");c("86857")}}]);
