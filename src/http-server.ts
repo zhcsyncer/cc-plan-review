@@ -146,21 +146,22 @@ export class HttpServer {
       try {
         const { quote, comment, position } = req.body;
 
-        // 验证必需字段
-        if (!quote || !comment || !position) {
-          res.status(400).json({ error: "Missing required fields: quote, comment, position" });
+        // comment 是必需字段，quote 和 position 可选（全局性批注时可为空）
+        if (!comment) {
+          res.status(400).json({ error: "Missing required field: comment" });
           return;
         }
 
-        if (typeof position.startOffset !== 'number' || typeof position.endOffset !== 'number') {
+        // 如果提供了 position，验证格式
+        if (position && (typeof position.startOffset !== 'number' || typeof position.endOffset !== 'number')) {
           res.status(400).json({ error: "Invalid position: startOffset and endOffset must be numbers" });
           return;
         }
 
         const newComment = await this.reviewManager.addComment(req.params.id, {
-          quote,
+          quote: quote || '',
           comment,
-          position
+          position: position || undefined
         });
         res.json(newComment);
       } catch (e: any) {
@@ -347,8 +348,19 @@ export class HttpServer {
     // Request Changes (有批注，请求修改)
     this.app.post("/api/reviews/:id/request-changes", async (req: Request, res: Response) => {
       try {
+        const { note } = req.body || {};
         const review = await this.reviewManager.getReview(req.params.id);
         const previousStatus = review?.status;
+
+        // 如果有全局性意见 note，先创建一个全局性批注
+        if (note && typeof note === 'string' && note.trim()) {
+          await this.reviewManager.addComment(req.params.id, {
+            quote: '',
+            comment: note.trim(),
+            position: undefined  // 全局性批注
+          });
+          logger.info(`Added global note to review ${req.params.id}`);
+        }
 
         const updatedReview = await this.reviewManager.submitFeedback(req.params.id);
 
