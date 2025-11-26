@@ -341,9 +341,9 @@ export class HttpServer {
         }
         await this.reviewManager._save(review);
 
-        // 触发状态变更事件
+        // 触发状态变更事件（approved 时包含 planContent）
         if (previousStatus !== review.status) {
-          reviewEventBus.emitStatusChanged(req.params.id, review.status, previousStatus);
+          reviewEventBus.emitStatusChanged(req.params.id, review.status, previousStatus, review.planContent);
         }
 
         logger.info(`Review ${req.params.id} approved directly`);

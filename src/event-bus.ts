@@ -14,6 +14,7 @@ export type SSEEventType =
 export interface StatusChangedData {
   status: ReviewStatus;
   previousStatus: ReviewStatus;
+  planContent?: string;  // 当 status === 'approved' 时包含最终批准的内容
 }
 
 export interface VersionUpdatedData {
@@ -66,11 +67,11 @@ class ReviewEventBus extends EventEmitter {
   }
 
   // 便捷方法：发送状态变更事件
-  emitStatusChanged(reviewId: string, status: ReviewStatus, previousStatus: ReviewStatus): void {
+  emitStatusChanged(reviewId: string, status: ReviewStatus, previousStatus: ReviewStatus, planContent?: string): void {
     this.emitReviewEvent({
       reviewId,
       type: 'status_changed',
-      data: { status, previousStatus }
+      data: { status, previousStatus, planContent }
     });
   }
 

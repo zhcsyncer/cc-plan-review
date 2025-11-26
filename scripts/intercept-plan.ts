@@ -47,6 +47,7 @@ interface Review {
     resolved?: boolean;
   }>;
   approvedDirectly?: boolean;
+  planContent?: string;  // 最终批准的 plan 内容
 }
 
 // 从 plan 内容中提取 REVIEW_ID 标记
@@ -368,10 +369,17 @@ async function main() {
     if (reviewResult.approvedDirectly || unresolvedCount === 0) {
       // 用户直接批准，允许 ExitPlanMode 执行
       debug('Review approved, allowing ExitPlanMode');
-      console.log(JSON.stringify({
+      const approveResponse: { decision: string; reason: string } = {
         decision: 'approve',
         reason: '用户已在 GUI 中批准计划。'
-      }));
+      };
+      // 如果有 planContent，附加到 reason 中，确保 agent 知道最终批准的版本
+      if (reviewResult.planContent) {
+        approveResponse.reason = `用户已批准计划。最终批准的 Plan 内容如下：
+
+${reviewResult.planContent}`;
+      }
+      console.log(JSON.stringify(approveResponse));
     } else {
       // 用户有反馈，阻止并返回评论
       debug('Review has feedback, blocking ExitPlanMode');
