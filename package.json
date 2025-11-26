@@ -2,7 +2,7 @@
   "name": "cc-plan-review",
   "version": "1.0.0",
   "description": "Claude Code plugin for human review of plans with ExitPlanMode interception and Web UI",
-  "main": "dist/index.js",
+  "main": "dist/index.cjs",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhcsyncer/cc-plan-review.git"
@@ -12,7 +12,7 @@
     "url": "https://github.com/zhcsyncer/cc-plan-review/issues"
   },
   "bin": {
-    "cc-plan-review": "dist/index.js"
+    "cc-plan-review": "dist/index.cjs"
   },
   "files": [
     "dist",
@@ -25,12 +25,12 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx watch src/index.ts",
     "build": "pnpm run build:server && pnpm run build:http-only && pnpm run build:scripts && pnpm run build:client",
-    "build:server": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/index.js --banner:js=\"#!/usr/bin/env node\"",
-    "build:http-only": "esbuild src/http-only.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/http-only.js --banner:js=\"#!/usr/bin/env node\"",
-    "build:scripts": "esbuild scripts/intercept-plan.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/scripts/intercept-plan.js",
+    "build:server": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=cjs --outfile=dist/index.cjs",
+    "build:http-only": "esbuild src/http-only.ts --bundle --platform=node --target=node18 --format=cjs --outfile=dist/http-only.cjs",
+    "build:scripts": "esbuild scripts/intercept-plan.ts --bundle --platform=node --target=node18 --format=cjs --outfile=dist/scripts/intercept-plan.cjs",
     "build:client": "cd client && pnpm install && pnpm run build",
     "prepublishOnly": "pnpm run build",
-    "start": "node dist/index.js"
+    "start": "node dist/index.cjs"
   },
   "keywords": [
     "claude-code",
