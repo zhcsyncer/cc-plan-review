@@ -120,12 +120,16 @@ Review ID: ${review.id}
 
                 case 'approved':
                     logger.info(`get_review_result: Review ${review.id} approved`);
+                    const approvedResult: Record<string, unknown> = {
+                        reviewId: review.id,
+                        status: 'approved',
+                        message: "Plan approved by user. You may proceed with implementation."
+                    };
+                    if (review.approvalNote) {
+                        approvedResult.note = review.approvalNote;
+                    }
                     return {
-                        content: [{ type: "text", text: JSON.stringify({
-                            reviewId: review.id,
-                            status: 'approved',
-                            message: "Plan approved by user. You may proceed with implementation."
-                        }) }]
+                        content: [{ type: "text", text: JSON.stringify(approvedResult) }]
                     };
 
                 case 'updated':

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
 import PlanViewer from './components/PlanViewer.vue';
 import ReviewSidebar from './components/ReviewSidebar.vue';
 import VersionPanel from './components/VersionPanel.vue';
@@ -89,6 +89,13 @@ const diffData = ref<DiffResult | null>(null);
 // SSE 连接状态
 const sseConnected = ref(false);
 
+// 补充意见（Approve 时可选填写）
+const approvalNote = ref('');
+
+// Approved 后的倒计时关闭
+const countdown = ref(3);
+let countdownTimer: number | null = null;
+
 // 计算属性：是否为只读模式
 const isReadOnly = computed(() => {
   return reviewStatus.value === 'changes_requested' || reviewStatus.value === 'approved';
@@ -145,6 +152,20 @@ const currentQuote = ref('');
 const currentPosition = ref<TextPosition | null>(null);
 const currentBoundingRect = ref<DOMRect | null>(null);
 const newCommentText = ref('');
+const commentTextareaRef = ref<HTMLTextAreaElement | null>(null);
+
+// 操作系统检测（用于快捷键提示）
+const isMac = computed(() => navigator.platform.toUpperCase().includes('MAC'));
+const shortcutHint = computed(() => isMac.value ? '⌘↵' : 'Ctrl+↵');
+
+// 弹窗打开时自动聚焦输入框
+watch(showCommentModal, (newVal) => {
+  if (newVal) {
+    nextTick(() => {
+      commentTextareaRef.value?.focus();
+    });
+  }
+});
 
 // SSE 回调处理
 function handleSSEConnected(data: { review: any }) {
@@ -176,6 +197,27 @@ function handleSSEConnected(data: { review: any }) {
 function handleSSEStatusChanged(data: StatusChangedData) {
   reviewStatus.value = data.status;
   console.log('[App] Status changed:', data.previousStatus, '->', data.status);
+
+  // 如果状态变为 approved，启动倒计时关闭窗口
+  if (data.status === 'approved') {
+    startCloseCountdown();
+  }
+}
+
+// 启动倒计时关闭窗口
+function startCloseCountdown() {
+  countdown.value = 3;
+  countdownTimer = window.setInterval(() => {
+    countdown.value--;
+    if (countdown.value <= 0) {
+      if (countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+      }
+      // 尝试关闭窗口
+      window.close();
+    }
+  }, 1000);
 }
 
 async function handleSSEVersionUpdated(data: VersionUpdatedData) {
@@ -270,6 +312,11 @@ onUnmounted(() => {
   if (confirmTimer) {
     clearTimeout(confirmTimer);
     confirmTimer = null;
+  }
+  // 清理倒计时定时器
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
   }
   // SSE 会在 useSSE 的 onUnmounted 中自动断开
 });
@@ -397,6 +444,14 @@ async function confirmAddComment() {
   }
 }
 
+// 处理评论输入框快捷键
+function handleCommentKeydown(e: KeyboardEvent) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    confirmAddComment();
+  }
+}
+
 async function onUpdateComment(id: string, text: string) {
   try {
     const res = await fetch(`/api/reviews/${reviewId.value}/comments/${id}`, {
@@ -455,8 +510,14 @@ async function onSubmitReview() {
 
     if (unresolvedComments.length === 0) {
       // 无批注或全部已解决，直接通过
+      const body: { note?: string } = {};
+      if (approvalNote.value.trim()) {
+        body.note = approvalNote.value.trim();
+      }
       const res = await fetch(`/api/reviews/${reviewId.value}/approve`, {
-        method: 'POST'
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
       });
       if (!res.ok) throw new Error('Failed to approve');
     } else {
@@ -557,7 +618,12 @@ function onHighlightClick(id: string) {
         <div class="text-4xl mb-2">🎉</div>
         <h2 class="text-2xl font-bold text-text-primary-light dark:text-text-primary-dark">Plan Approved!</h2>
         <p class="text-text-secondary-light dark:text-text-secondary-dark">You can close this window and return to Claude.</p>
-        <p class="text-sm text-text-secondary-light dark:text-text-secondary-dark">Type "continue" in the chat.</p>
+        <p v-if="countdown > 0" class="text-lg font-medium text-claude-primary dark:text-claude-primary-dark">
+          Window closing in {{ countdown }}s...
+        </p>
+        <p v-else class="text-sm text-text-secondary-light dark:text-text-secondary-dark">
+          Type "continue" in the chat.
+        </p>
       </div>
 
       <!-- Waiting for Agent 状态 -->
@@ -606,6 +672,7 @@ function onHighlightClick(id: string) {
               :comments="comments"
               :active-comment-id="activeCommentId"
               :is-historical-version="selectedVersion !== currentVersionHash"
+              :current-version="selectedVersion"
               @request-comment="onRequestComment"
               @highlight-click="onHighlightClick"
             />
@@ -620,6 +687,7 @@ function onHighlightClick(id: string) {
             :review-status="reviewStatus"
             :is-read-only="isReadOnly"
             :has-questions="hasQuestionsToAnswer"
+            v-model:approval-note="approvalNote"
             @update-comment="onUpdateComment"
             @delete-comment="onDeleteComment"
             @submit-review="onSubmitReview"
@@ -638,11 +706,12 @@ function onHighlightClick(id: string) {
           "{{ currentQuote }}"
         </div>
         <textarea
+          ref="commentTextareaRef"
           v-model="newCommentText"
           class="w-full border border-border-light dark:border-border-dark rounded p-3 mb-4 focus:ring-2 focus:ring-claude-primary dark:focus:ring-claude-primary-dark outline-none bg-app-surface-light dark:bg-app-surface-dark text-text-primary-light dark:text-text-primary-dark transition-colors duration-200"
           rows="4"
           placeholder="Type your comment here..."
-          autofocus
+          @keydown="handleCommentKeydown"
         ></textarea>
         <div class="flex justify-end gap-3">
           <button
@@ -653,10 +722,11 @@ function onHighlightClick(id: string) {
           </button>
           <button
             @click="confirmAddComment"
-            class="px-4 py-2 bg-claude-primary dark:bg-claude-primary-dark text-white rounded hover:bg-claude-primary-hover disabled:opacity-50 transition-colors"
+            class="px-4 py-2 bg-claude-primary dark:bg-claude-primary-dark text-white rounded hover:bg-claude-primary-hover disabled:opacity-50 transition-colors flex items-center gap-2"
             :disabled="!newCommentText.trim()"
           >
             Add Comment
+            <span class="text-xs opacity-70">{{ shortcutHint }}</span>
           </button>
         </div>
       </div>

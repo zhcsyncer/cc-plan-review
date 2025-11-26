@@ -42,6 +42,7 @@ interface Comment {
     startOffset: number;
     endOffset: number;
   };
+  documentVersion: string;
 }
 
 const props = defineProps<{
@@ -49,6 +50,7 @@ const props = defineProps<{
   comments: Comment[];
   activeCommentId: string | null;
   isHistoricalVersion?: boolean;  // 是否是历史版本（禁用评论）
+  currentVersion: string;  // 当前查看的版本
 }>();
 
 interface CommentRequest {
@@ -76,21 +78,23 @@ function highlightComments() {
   // 清除旧高亮
   markInstance.value.unmark({
     done: () => {
-      // 高亮每个评论的 quote
-      props.comments.forEach(comment => {
-        markInstance.value?.mark(comment.quote, {
-          className: 'comment-highlight',
-          acrossElements: true,
-          separateWordSearch: false,
-          each: (element: HTMLElement) => {
-            element.dataset.commentId = comment.id;
-            // 添加点击事件
-            element.addEventListener('click', () => {
-              emit('highlight-click', comment.id);
-            });
-          }
+      // 仅高亮当前版本的评论
+      props.comments
+        .filter(comment => comment.documentVersion === props.currentVersion)
+        .forEach(comment => {
+          markInstance.value?.mark(comment.quote, {
+            className: 'comment-highlight',
+            acrossElements: true,
+            separateWordSearch: false,
+            each: (element: HTMLElement) => {
+              element.dataset.commentId = comment.id;
+              // 添加点击事件
+              element.addEventListener('click', () => {
+                emit('highlight-click', comment.id);
+              });
+            }
+          });
         });
-      });
 
       // 更新激活状态
       updateActiveHighlight();
@@ -188,6 +192,13 @@ watch(() => props.comments, () => {
 // 监听激活状态变化
 watch(() => props.activeCommentId, () => {
   updateActiveHighlight();
+});
+
+// 监听版本变化，重新高亮
+watch(() => props.currentVersion, () => {
+  nextTick(() => {
+    highlightComments();
+  });
 });
 
 // 渲染 Mermaid 图表

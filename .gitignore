@@ -14,3 +14,4 @@ pnpm-debug.log*
 .vscode
 *.tsbuildinfo
 .claude
+.reviews

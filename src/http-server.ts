@@ -324,6 +324,7 @@ export class HttpServer {
     // Approve Review (直接批准，忽略状态验证)
     this.app.post("/api/reviews/:id/approve", async (req: Request, res: Response) => {
       try {
+        const { note } = req.body || {};
         const review = await this.reviewManager.getReview(req.params.id);
         if (!review) {
           res.status(404).json({ error: "Review not found" });
@@ -335,6 +336,9 @@ export class HttpServer {
         // 直接设置为 approved 状态（状态名不变）
         review.status = 'approved';
         review.approvedDirectly = true;
+        if (note) {
+          review.approvalNote = note;
+        }
         await this.reviewManager._save(review);
 
         // 触发状态变更事件

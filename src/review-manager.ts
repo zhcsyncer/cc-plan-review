@@ -142,6 +142,7 @@ export interface Review {
   // 项目隔离
   projectPath?: string;                 // 关联的项目路径
   approvedDirectly?: boolean;           // 是否直接批准（无评论）
+  approvalNote?: string;                // 批准时的补充意见（可选）
 }
 
 export class ReviewManager {
