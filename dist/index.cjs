@@ -34001,19 +34001,25 @@ var ReviewManager = class {
       logger.error(`Add comment failed: Review ${reviewId} not found`);
       throw new Error("Review not found");
     }
+    const isGlobalComment = !commentData.quote || !commentData.position;
+    const position = commentData.position || { startOffset: 0, endOffset: 0 };
     const comment = {
       id: (0, import_crypto.randomUUID)(),
       createdAt: Date.now(),
-      quote: commentData.quote,
+      quote: commentData.quote || "",
       comment: commentData.comment,
-      position: commentData.position,
+      position,
       documentVersion: review.currentVersion,
       positionStatus: "valid",
       resolved: false
     };
     review.comments.push(comment);
     await this._save(review);
-    logger.info(`Added comment to review ${reviewId}: ${comment.id} at offset ${commentData.position.startOffset}-${commentData.position.endOffset}`);
+    if (isGlobalComment) {
+      logger.info(`Added global comment to review ${reviewId}: ${comment.id}`);
+    } else {
+      logger.info(`Added comment to review ${reviewId}: ${comment.id} at offset ${position.startOffset}-${position.endOffset}`);
+    }
     return comment;
   }
   async updateComment(reviewId, commentId, text) {
@@ -35184,18 +35190,18 @@ var HttpServer = class {
     this.app.post("/api/reviews/:id/comments", async (req, res) => {
       try {
         const { quote, comment, position } = req.body;
-        if (!quote || !comment || !position) {
-          res.status(400).json({ error: "Missing required fields: quote, comment, position" });
+        if (!comment) {
+          res.status(400).json({ error: "Missing required field: comment" });
           return;
         }
-        if (typeof position.startOffset !== "number" || typeof position.endOffset !== "number") {
+        if (position && (typeof position.startOffset !== "number" || typeof position.endOffset !== "number")) {
           res.status(400).json({ error: "Invalid position: startOffset and endOffset must be numbers" });
           return;
         }
         const newComment = await this.reviewManager.addComment(req.params.id, {
-          quote,
+          quote: quote || "",
           comment,
-          position
+          position: position || void 0
         });
         res.json(newComment);
       } catch (e) {
@@ -35343,8 +35349,18 @@ var HttpServer = class {
     });
     this.app.post("/api/reviews/:id/request-changes", async (req, res) => {
       try {
+        const { note } = req.body || {};
         const review = await this.reviewManager.getReview(req.params.id);
         const previousStatus = review?.status;
+        if (note && typeof note === "string" && note.trim()) {
+          await this.reviewManager.addComment(req.params.id, {
+            quote: "",
+            comment: note.trim(),
+            position: void 0
+            // 全局性批注
+          });
+          logger.info(`Added global note to review ${req.params.id}`);
+        }
         const updatedReview = await this.reviewManager.submitFeedback(req.params.id);
         if (previousStatus && previousStatus !== updatedReview.status) {
           reviewEventBus.emitStatusChanged(req.params.id, updatedReview.status, previousStatus);
@@ -43869,111 +43885,6 @@ var McpService = class {
   }
   setupTools() {
     this.server.tool(
-      "get_review_result",
-      `\u83B7\u53D6\u4EBA\u5DE5\u5BA1\u6838\u7684\u7ED3\u679C\u3002
-
-\u5728\u4EE5\u4E0B\u60C5\u51B5\u8C03\u7528\u6B64\u5DE5\u5177\uFF1A
-1. \u7528\u6237\u5728\u7EC8\u7AEF\u8F93\u5165 'continue' \u540E
-2. \u6536\u5230 ExitPlanMode \u88AB\u963B\u6B62\u7684\u6D88\u606F\u540E\uFF0C\u9700\u8981\u83B7\u53D6\u8BE6\u7EC6\u53CD\u9988\u65F6
-
-\u8FD4\u56DE\u5185\u5BB9\u6839\u636E\u72B6\u6001\u4E0D\u540C\uFF1A
-- open: \u7528\u6237\u5C1A\u672A\u63D0\u4EA4\u5BA1\u6838
-- changes_requested: \u8FD4\u56DE\u7528\u6237\u7684\u6240\u6709\u8BC4\u8BBA
-- discussing: \u7B49\u5F85\u7528\u6237\u56DE\u7B54\u95EE\u9898
-- approved: \u8BA1\u5212\u5DF2\u6279\u51C6\uFF0C\u53EF\u4EE5\u5F00\u59CB\u6267\u884C
-- updated: \u7B49\u5F85\u7528\u6237\u5BA1\u6838\u65B0\u7248\u672C`,
-      {
-        reviewId: external_exports.string().optional().describe("Review ID\u3002\u5982\u679C\u7701\u7565\uFF0C\u83B7\u53D6\u5F53\u524D\u9879\u76EE\u6700\u65B0\u7684\u5BA1\u6838\u7ED3\u679C"),
-        projectPath: external_exports.string().optional().describe("\u9879\u76EE\u8DEF\u5F84\uFF0C\u7528\u4E8E\u67E5\u627E\u8BE5\u9879\u76EE\u7684\u5BA1\u6838\u8BB0\u5F55")
-      },
-      async ({ reviewId, projectPath }) => {
-        logger.info(`Tool called: get_review_result (reviewId: ${reviewId || "latest"}, project: ${projectPath || "global"})`);
-        let review;
-        if (reviewId) {
-          review = await this.reviewManager.getReview(reviewId, projectPath);
-        } else {
-          review = await this.reviewManager.getLatestReview(projectPath);
-        }
-        if (!review) {
-          logger.info("get_review_result: No active review found");
-          return {
-            content: [{ type: "text", text: JSON.stringify({ error: "No active review found." }) }]
-          };
-        }
-        switch (review.status) {
-          case "open":
-            logger.info(`get_review_result: Review ${review.id} is open`);
-            return {
-              content: [{ type: "text", text: JSON.stringify({
-                reviewId: review.id,
-                status: "open",
-                message: "User has not submitted the review yet. Please wait for the user to finish."
-              }) }]
-            };
-          case "discussing":
-            logger.info(`get_review_result: Review ${review.id} is discussing`);
-            return {
-              content: [{ type: "text", text: JSON.stringify({
-                reviewId: review.id,
-                status: "discussing",
-                message: "Waiting for user to answer your questions. Please wait."
-              }) }]
-            };
-          case "approved":
-            logger.info(`get_review_result: Review ${review.id} approved`);
-            const approvedResult = {
-              reviewId: review.id,
-              status: "approved",
-              message: "Plan approved by user. You may proceed with implementation."
-            };
-            if (review.approvalNote) {
-              approvedResult.note = review.approvalNote;
-            }
-            return {
-              content: [{ type: "text", text: JSON.stringify(approvedResult) }]
-            };
-          case "updated":
-            logger.info(`get_review_result: Review ${review.id} updated, waiting for user`);
-            return {
-              content: [{ type: "text", text: JSON.stringify({
-                reviewId: review.id,
-                status: "updated",
-                message: "Waiting for user to review the new revision. Please wait."
-              }) }]
-            };
-          case "changes_requested":
-          default:
-            const unresolvedComments = (review.comments || []).filter((c) => !c.resolved);
-            if (unresolvedComments.length === 0) {
-              logger.info(`get_review_result: Review ${review.id} has no unresolved comments`);
-              return {
-                content: [{ type: "text", text: JSON.stringify({
-                  reviewId: review.id,
-                  status: "changes_requested",
-                  comments: [],
-                  message: "No unresolved comments. You can call update_plan to submit new version."
-                }) }]
-              };
-            }
-            const commentsData = unresolvedComments.map((c) => ({
-              id: c.id,
-              quote: c.quote,
-              comment: c.comment,
-              answer: c.answer
-              // 如果之前有 question，这是用户的回答
-            }));
-            logger.info(`get_review_result: Returned ${unresolvedComments.length} comments for review ${review.id}`);
-            return {
-              content: [{ type: "text", text: JSON.stringify({
-                reviewId: review.id,
-                status: "changes_requested",
-                comments: commentsData
-              }) }]
-            };
-        }
-      }
-    );
-    this.server.tool(
       "ask_questions",
       `Ask questions or acknowledge comments from user feedback.
 MUST cover ALL unresolved comments - each comment needs a question entry.
@@ -44062,7 +43973,7 @@ This tool will BLOCK until user submits their answers (timeout: 10 minutes).`,
               reviewId,
               status: "discussing",
               error: "Timeout waiting for user to answer questions (10 minutes).",
-              message: "Please ask the user to complete their answers in the browser, then call get_review_result to check the status."
+              message: "Please ask the user to complete their answers in the browser, then retry ask_questions or modify the plan and re-submit via ExitPlanMode."
             }) }]
           };
         } catch (e) {

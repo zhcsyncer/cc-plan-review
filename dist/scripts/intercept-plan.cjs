@@ -276,12 +276,35 @@ async function pollForReview(reviewId, timeout) {
   debug("pollForReview timeout", { pollCount });
   return "timeout";
 }
-function formatComments(comments) {
+function calculateLineNumber(content, offset) {
+  const textBefore = content.substring(0, offset);
+  return (textBefore.match(/\n/g) || []).length + 1;
+}
+function isGlobalComment(item) {
+  return !item.quote || item.position?.startOffset === 0 && item.position?.endOffset === 0;
+}
+function formatComments(comments, planContent) {
   const unresolvedComments = comments.filter((c) => !c.resolved);
   if (unresolvedComments.length === 0) return "";
-  return unresolvedComments.map((item, index) => {
-    return `${index + 1}. [\u5F15\u7528: "${item.quote}"] \u2192 \u8BC4\u8BBA: ${item.comment}`;
-  }).join("\n");
+  const lineComments = unresolvedComments.filter((c) => !isGlobalComment(c));
+  const globalComments = unresolvedComments.filter((c) => isGlobalComment(c));
+  let result = "";
+  if (lineComments.length > 0) {
+    result = lineComments.map((item, index) => {
+      const pos = item.position;
+      const startLine = calculateLineNumber(planContent, pos.startOffset);
+      const endLine = calculateLineNumber(planContent, pos.endOffset);
+      const lineInfo = startLine === endLine ? `\u884C ${startLine}` : `\u884C ${startLine}-${endLine}`;
+      const offsetInfo = `\u504F\u79FB ${pos.startOffset}-${pos.endOffset}`;
+      return `${index + 1}. [${lineInfo}, ${offsetInfo}, \u5F15\u7528: "${item.quote}"] \u2192 \u8BC4\u8BBA: ${item.comment}`;
+    }).join("\n");
+  }
+  if (globalComments.length > 0) {
+    if (result) result += "\n\n";
+    result += "**\u5168\u5C40\u6027\u5BA1\u6838\u610F\u89C1**:\n";
+    result += globalComments.map((item, index) => `${index + 1}. ${item.comment}`).join("\n");
+  }
+  return result;
 }
 async function main() {
   debug("Hook script started");
@@ -383,7 +406,7 @@ ${reviewResult.planContent}`;
       console.log(JSON.stringify(approveResponse));
     } else {
       debug("Review has feedback, blocking ExitPlanMode");
-      const commentsText = formatComments(reviewResult.comments);
+      const commentsText = formatComments(reviewResult.comments, reviewResult.planContent || "");
       const output = {
         decision: "block",
         reason: `\u7528\u6237\u5BF9\u8BA1\u5212\u6709\u4EE5\u4E0B\u4FEE\u6539\u5EFA\u8BAE\uFF08Review ID: ${reviewResult.id}\uFF09\uFF1A
