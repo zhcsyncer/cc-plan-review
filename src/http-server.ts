@@ -7,6 +7,7 @@ import { McpService } from "./mcp-server.js";
 import { logger } from "./logger.js";
 import { sseManager } from "./sse-manager.js";
 import { reviewEventBus } from "./event-bus.js";
+import { configManager } from "./config-manager.js";
 
 // 获取当前目录（兼容 CJS 打包）
 // 使用 path.resolve 确保是绝对路径，避免 sendFile 出错
@@ -376,10 +377,10 @@ export class HttpServer {
       }
     });
 
-    // Approve Review (直接批准，忽略状态验证)
+    // Approve Review (直接批准，支持 passThrough 模式)
     this.app.post("/api/reviews/:id/approve", async (req: Request, res: Response) => {
       try {
-        const { note } = req.body || {};
+        const { note, passThrough } = req.body || {};
         const review = await this.reviewManager.getReview(req.params.id);
         if (!review) {
           res.status(404).json({ error: "Review not found" });
@@ -388,9 +389,16 @@ export class HttpServer {
 
         const previousStatus = review.status;
 
-        // 直接设置为 approved 状态（状态名不变）
+        // 直接设置为 approved 状态
         review.status = 'approved';
         review.approvedDirectly = true;
+
+        // passThrough 模式：记录标记，comments 作为建议传递
+        if (passThrough) {
+          review.passThrough = true;
+          logger.info(`Review ${req.params.id} approved with passThrough mode (${review.comments.filter(c => !c.resolved).length} suggestions)`);
+        }
+
         if (note) {
           review.approvalNote = note;
         }
@@ -402,7 +410,7 @@ export class HttpServer {
         }
 
         logger.info(`Review ${req.params.id} approved directly`);
-        res.json({ status: "ok", reviewStatus: review.status });
+        res.json({ status: "ok", reviewStatus: review.status, passThrough: !!passThrough });
       } catch (e: any) {
         res.status(500).json({ error: e.message });
       }
@@ -472,6 +480,78 @@ export class HttpServer {
       }
     });
 
+    // ==================== Config API ====================
+
+    // Get Config (模板和通知设置)
+    this.app.get("/api/config", async (req: Request, res: Response) => {
+      try {
+        const config = await configManager.getConfig();
+        res.json(config);
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Update Templates
+    this.app.put("/api/config/templates", async (req: Request, res: Response) => {
+      try {
+        const { templates } = req.body;
+        if (!templates || !Array.isArray(templates)) {
+          res.status(400).json({ error: "Missing or invalid 'templates' array" });
+          return;
+        }
+
+        await configManager.updateTemplates(templates);
+        const config = await configManager.getConfig();
+        res.json({ status: "ok", templatesCount: config.templates.length });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Add Template
+    this.app.post("/api/config/templates", async (req: Request, res: Response) => {
+      try {
+        const { name, content } = req.body;
+        if (!name || !content) {
+          res.status(400).json({ error: "Missing 'name' or 'content' field" });
+          return;
+        }
+
+        const template = await configManager.addTemplate({ name, content });
+        res.json({ status: "ok", template });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Delete Template
+    this.app.delete("/api/config/templates/:id", async (req: Request, res: Response) => {
+      try {
+        const deleted = await configManager.deleteTemplate(req.params.id);
+        if (!deleted) {
+          res.status(400).json({ error: "Cannot delete built-in template or template not found" });
+          return;
+        }
+        res.json({ status: "ok" });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Update Notification Settings
+    this.app.put("/api/config/notification", async (req: Request, res: Response) => {
+      try {
+        const settings = req.body;
+        const updated = await configManager.updateNotificationSettings(settings);
+        res.json({ status: "ok", notification: updated });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // ==================== MCP ====================
+
     // MCP Streamable HTTP Endpoint (仅在 HTTP 传输模式下启用)
     if (this.options.enableMcpEndpoint) {
       this.app.post("/mcp", async (req: Request, res: Response) => {
@@ -482,6 +562,11 @@ export class HttpServer {
     // SPA Fallback
     this.app.get(/^\/review(\/.*)?$/, (req: Request, res: Response) => {
         // Express 5 requires root option for sendFile
+        res.sendFile("index.html", { root: path.join(currentDir, "client") });
+    });
+
+    // Settings Page SPA Fallback
+    this.app.get("/settings", (req: Request, res: Response) => {
         res.sendFile("index.html", { root: path.join(currentDir, "client") });
     });
   }
@@ -506,7 +591,7 @@ export class HttpServer {
         server.on('error', (err: any) => {
           if (port === 3030 && err.code === 'EADDRINUSE') {
             logger.info('Port 3030 is in use, trying a random port...');
-            tryListen(0);
+            tryListen(3031);
           } else {
             reject(err);
           }
