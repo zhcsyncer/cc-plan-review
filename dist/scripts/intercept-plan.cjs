@@ -394,15 +394,23 @@ async function main() {
     });
     if (reviewResult.approvedDirectly || unresolvedCount === 0) {
       debug("Review approved, allowing ExitPlanMode");
-      const approveResponse = {
-        decision: "approve",
-        reason: "\u7528\u6237\u5DF2\u5728 GUI \u4E2D\u6279\u51C6\u8BA1\u5212\u3002"
-      };
+      let reason = `\u7528\u6237\u5DF2\u6279\u51C6\u8BA1\u5212\u3002
+
+**\u91CD\u8981\u6307\u4EE4**\uFF1A
+1. \u9000\u51FA Plan Mode
+2. \u5207\u6362\u5230 Auto Accept Mode\uFF08\u81EA\u52A8\u63A5\u53D7\u7F16\u8F91\u6A21\u5F0F\uFF09
+3. \u6309\u7167\u8BA1\u5212\u5F00\u59CB\u6267\u884C`;
       if (reviewResult.planContent) {
-        approveResponse.reason = `\u7528\u6237\u5DF2\u6279\u51C6\u8BA1\u5212\u3002\u6700\u7EC8\u6279\u51C6\u7684 Plan \u5185\u5BB9\u5982\u4E0B\uFF1A
+        reason += `
+
+**\u6700\u7EC8\u6279\u51C6\u7684 Plan \u5185\u5BB9**\uFF1A
 
 ${reviewResult.planContent}`;
       }
+      const approveResponse = {
+        decision: "approve",
+        reason
+      };
       console.log(JSON.stringify(approveResponse));
     } else {
       debug("Review has feedback, blocking ExitPlanMode");
