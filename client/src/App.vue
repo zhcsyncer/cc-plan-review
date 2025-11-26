@@ -6,8 +6,22 @@ import VersionPanel from './components/VersionPanel.vue';
 import DiffViewer from './components/DiffViewer.vue';
 import KeyboardHelpModal from './components/KeyboardHelpModal.vue';
 import Kbd from './components/Kbd.vue';
+import TemplateDropdown from './components/TemplateDropdown.vue';
+import SettingsPage from './pages/SettingsPage.vue';
+import type { CommentTemplate } from './composables/useConfig';
 import { useSSE, type ReviewStatus, type StatusChangedData, type VersionUpdatedData, type QuestionsUpdatedData } from './composables/useSSE';
 import { useKeyboard } from './composables/useKeyboard';
+import { useNotification } from './composables/useNotification';
+import { useConfig } from './composables/useConfig';
+
+// 简单路由
+const currentPath = ref(window.location.pathname);
+const isSettingsPage = computed(() => currentPath.value === '/settings');
+
+// 监听 popstate 事件
+window.addEventListener('popstate', () => {
+  currentPath.value = window.location.pathname;
+});
 
 interface TextPosition {
   startOffset: number;
@@ -95,9 +109,39 @@ const sseConnected = ref(false);
 // 补充意见（Approve 时可选填写）
 const approvalNote = ref('');
 
+// PassThrough 模式：评论作为建议传递，直接通过
+const passThrough = ref(false);
+
 // Approved 后的倒计时关闭
 const countdown = ref(3);
 let countdownTimer: number | null = null;
+
+// 通知
+const { notifyVersionUpdated, notifyQuestionsUpdated, notifyTimeoutWarning } = useNotification();
+const { loadConfig } = useConfig();
+
+// 超时预警计时器
+const REVIEW_TIMEOUT = 10 * 60 * 1000; // 10 分钟
+const WARNING_BEFORE = 2 * 60 * 1000;  // 提前 2 分钟预警
+let reviewStartTime: number | null = null;
+let warningTimer: number | null = null;
+
+function startTimeoutWarning() {
+  reviewStartTime = Date.now();
+  // 设置超时预警计时器
+  warningTimer = window.setTimeout(() => {
+    const remaining = Math.ceil((REVIEW_TIMEOUT - (Date.now() - (reviewStartTime || 0))) / 60000);
+    notifyTimeoutWarning(remaining);
+  }, REVIEW_TIMEOUT - WARNING_BEFORE);
+}
+
+function clearTimeoutWarning() {
+  if (warningTimer) {
+    clearTimeout(warningTimer);
+    warningTimer = null;
+  }
+  reviewStartTime = null;
+}
 
 // 快捷键帮助面板
 const showKeyboardHelp = ref(false);
@@ -206,6 +250,14 @@ function handleSSEConnected(data: { review: any }) {
 
   sseConnected.value = true;
   loading.value = false;
+
+  // 加载配置（用于通知设置）
+  loadConfig().catch(() => {});
+
+  // 启动超时预警计时器（仅在未 approved 状态下）
+  if (review.status !== 'approved') {
+    startTimeoutWarning();
+  }
 }
 
 function handleSSEStatusChanged(data: StatusChangedData) {
@@ -214,6 +266,7 @@ function handleSSEStatusChanged(data: StatusChangedData) {
 
   // 如果状态变为 approved，启动倒计时关闭窗口
   if (data.status === 'approved') {
+    clearTimeoutWarning();  // 清除超时预警
     startCloseCountdown();
   }
 }
@@ -276,6 +329,9 @@ async function handleSSEVersionUpdated(data: VersionUpdatedData) {
   }
 
   console.log('[App] Version updated:', data.version.versionHash.substring(0, 8));
+
+  // 发送浏览器通知
+  notifyVersionUpdated(data.version.versionHash);
 }
 
 function handleSSEQuestionsUpdated(data: QuestionsUpdatedData) {
@@ -291,6 +347,11 @@ function handleSSEQuestionsUpdated(data: QuestionsUpdatedData) {
     }
   }
   console.log('[App] Questions updated:', data.questions.length, 'questions');
+
+  // 发送浏览器通知
+  if (data.questions.length > 0) {
+    notifyQuestionsUpdated(data.questions.length);
+  }
 }
 
 onMounted(async () => {
@@ -332,6 +393,8 @@ onUnmounted(() => {
     clearInterval(countdownTimer);
     countdownTimer = null;
   }
+  // 清理超时预警定时器
+  clearTimeoutWarning();
   // SSE 会在 useSSE 的 onUnmounted 中自动断开
 });
 
@@ -429,6 +492,16 @@ function onRequestComment(data: CommentRequest) {
   currentBoundingRect.value = data.boundingRect;
   newCommentText.value = '';
   showCommentModal.value = true;
+}
+
+// 选择评论模板
+function onSelectTemplate(template: CommentTemplate) {
+  // 如果输入框已有内容，在末尾追加；否则直接设置
+  if (newCommentText.value.trim()) {
+    newCommentText.value += '\n' + template.content;
+  } else {
+    newCommentText.value = template.content;
+  }
 }
 
 async function confirmAddComment() {
@@ -529,6 +602,19 @@ async function onSubmitReview() {
         method: 'POST'
       });
       if (!res.ok) throw new Error('Failed to approve');
+    } else if (passThrough.value) {
+      // PassThrough 模式：有批注但直接通过，评论作为建议传递
+      const body: { note?: string; passThrough: boolean } = { passThrough: true };
+      if (hasApprovalNote) {
+        body.note = hasApprovalNote;
+        approvalNote.value = '';
+      }
+      const res = await fetch(`/api/reviews/${reviewId.value}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) throw new Error('Failed to approve with suggestions');
     } else {
       // 有批注或有全局意见 → 请求修改
       const body: { note?: string } = {};
@@ -732,11 +818,26 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-screen flex flex-col bg-app-bg-light dark:bg-app-bg-dark overflow-hidden transition-colors duration-200">
+  <!-- 设置页面 -->
+  <SettingsPage v-if="isSettingsPage" />
+
+  <!-- 主应用 -->
+  <div v-else class="h-screen flex flex-col bg-app-bg-light dark:bg-app-bg-dark overflow-hidden transition-colors duration-200">
     <!-- Header -->
     <header class="bg-app-surface-light dark:bg-app-surface-dark border-b border-border-light dark:border-border-dark px-6 py-3 shadow-sm flex items-center justify-between transition-colors duration-200">
       <h1 class="font-bold text-lg text-text-primary-light dark:text-text-primary-dark">Claude Plan Review</h1>
       <div class="flex items-center gap-4">
+        <!-- 设置按钮 -->
+        <a
+          href="/settings"
+          class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-text-secondary-light dark:text-text-secondary-dark hover:text-text-primary-light dark:hover:text-text-primary-dark"
+          title="Settings"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </a>
         <!-- 主题切换按钮 -->
         <button
           @click="toggleTheme"
@@ -848,6 +949,7 @@ onUnmounted(() => {
             :is-read-only="isReadOnly"
             :has-questions="hasQuestionsToAnswer"
             v-model:approval-note="approvalNote"
+            v-model:pass-through="passThrough"
             @update-comment="onUpdateComment"
             @delete-comment="onDeleteComment"
             @submit-review="onSubmitReview"
@@ -862,7 +964,10 @@ onUnmounted(() => {
     <!-- Add Comment Modal -->
     <div v-if="showCommentModal" class="fixed inset-0 bg-black/50 dark:bg-black/70 z-50 flex items-center justify-center p-4 transition-colors duration-200">
       <div class="bg-app-surface-light dark:bg-app-surface-dark rounded-lg shadow-xl w-full max-w-md p-6 transition-colors duration-200">
-        <h3 class="text-lg font-bold mb-4 text-text-primary-light dark:text-text-primary-dark">Add Comment</h3>
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-bold text-text-primary-light dark:text-text-primary-dark">Add Comment</h3>
+          <TemplateDropdown @select="onSelectTemplate" />
+        </div>
         <div class="bg-app-surface-alt-light dark:bg-app-surface-alt-dark p-3 rounded border border-border-light dark:border-border-dark mb-4 text-sm italic text-text-secondary-light dark:text-text-secondary-dark max-h-32 overflow-y-auto transition-colors duration-200">
           "{{ currentQuote }}"
         </div>

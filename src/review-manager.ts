@@ -156,6 +156,7 @@ export interface Review {
   projectPath?: string;                 // 关联的项目路径
   approvedDirectly?: boolean;           // 是否直接批准（无评论）
   approvalNote?: string;                // 批准时的补充意见（可选）
+  passThrough?: boolean;                // passThrough 模式：评论作为建议传递，直接通过
 }
 
 export class ReviewManager {

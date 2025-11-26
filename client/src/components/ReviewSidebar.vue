@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import { Trash2, Edit2, Check, X, ChevronDown, ChevronUp } from 'lucide-vue-next';
 import QuestionInput from './QuestionInput.vue';
 import Kbd from './Kbd.vue';
+import PassThroughSwitch from './PassThroughSwitch.vue';
 
 type ReviewStatus = 'open' | 'changes_requested' | 'discussing' | 'approved' | 'updated';
 
@@ -31,6 +32,7 @@ const props = defineProps<{
   isReadOnly?: boolean;
   hasQuestions?: boolean;
   approvalNote?: string;
+  passThrough?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -41,6 +43,7 @@ const emit = defineEmits<{
   (e: 'comment-click', id: string): void;
   (e: 'answer-question', commentId: string, answer: string): void;
   (e: 'update:approvalNote', value: string): void;
+  (e: 'update:passThrough', value: boolean): void;
 }>();
 
 // 处理全局意见输入框的快捷键
@@ -73,9 +76,15 @@ const buttonText = computed(() => {
     case 'discussing':
       return allQuestionsAnswered.value ? 'Submit Answers' : 'Answer All Questions';
     case 'updated':
-      return unresolvedComments.value.length > 0 ? 'Submit Feedback' : 'Approve';
+      if (unresolvedComments.value.length > 0) {
+        return props.passThrough ? 'Approve with Suggestions' : 'Submit Feedback';
+      }
+      return 'Approve';
     default:
-      return unresolvedComments.value.length > 0 ? 'Submit Feedback' : 'Approve';
+      if (unresolvedComments.value.length > 0) {
+        return props.passThrough ? 'Approve with Suggestions' : 'Submit Feedback';
+      }
+      return 'Approve';
   }
 });
 
@@ -247,6 +256,14 @@ function toggleExpand(c: Comment) {
 
     <!-- Footer -->
     <div class="p-4 border-t border-border-light dark:border-border-dark bg-app-surface-light dark:bg-app-surface-dark transition-colors duration-200">
+      <!-- PassThrough 开关（仅在有未解决评论时显示） -->
+      <div v-if="unresolvedComments.length > 0 && !hasQuestions && !isReadOnly" class="mb-3">
+        <PassThroughSwitch
+          :model-value="passThrough ?? false"
+          @update:model-value="emit('update:passThrough', $event)"
+        />
+      </div>
+
       <!-- 折叠式全局意见输入框（始终显示，除了 Agent 提问时） -->
       <details v-if="!hasQuestions" class="mb-3">
         <summary class="text-sm text-text-secondary-light dark:text-text-secondary-dark cursor-pointer hover:text-text-primary-light dark:hover:text-text-primary-dark select-none">

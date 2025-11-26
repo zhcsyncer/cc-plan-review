@@ -161,9 +161,11 @@ interface Review {
     quote: string;
     comment: string;
     resolved?: boolean;
+    position?: { startOffset: number; endOffset: number };
   }>;
   approvedDirectly?: boolean;
-  planContent?: string;  // 最终批准的 plan 内容
+  passThrough?: boolean;        // passThrough 模式：评论作为建议
+  planContent?: string;         // 最终批准的 plan 内容
 }
 
 // 从 plan 内容中提取 REVIEW_ID 标记
@@ -381,6 +383,41 @@ function isGlobalComment(item: Review['comments'][0]): boolean {
   return !item.quote || (item.position?.startOffset === 0 && item.position?.endOffset === 0);
 }
 
+// 格式化建议反馈（passThrough 模式使用，语气更柔和）
+function formatSuggestions(comments: Review['comments'], planContent: string): string {
+  const unresolvedComments = comments.filter(c => !c.resolved);
+  if (unresolvedComments.length === 0) return '';
+
+  // 分离普通批注和全局性批注
+  const lineComments = unresolvedComments.filter(c => !isGlobalComment(c));
+  const globalComments = unresolvedComments.filter(c => isGlobalComment(c));
+
+  let result = '';
+
+  // 格式化普通批注（带行号）
+  if (lineComments.length > 0) {
+    result = lineComments.map((item, index) => {
+      const pos = item.position;
+      if (!pos) return `${index + 1}. [引用: "${item.quote}"] → 建议: ${item.comment}`;
+
+      const startLine = calculateLineNumber(planContent, pos.startOffset);
+      const endLine = calculateLineNumber(planContent, pos.endOffset);
+      const lineInfo = startLine === endLine ? `行 ${startLine}` : `行 ${startLine}-${endLine}`;
+
+      return `${index + 1}. [${lineInfo}, 引用: "${item.quote}"] → 建议: ${item.comment}`;
+    }).join('\n');
+  }
+
+  // 格式化全局性批注
+  if (globalComments.length > 0) {
+    if (result) result += '\n\n';
+    result += '**全局性建议**:\n';
+    result += globalComments.map((item, index) => `${index + 1}. ${item.comment}`).join('\n');
+  }
+
+  return result;
+}
+
 // 格式化评论反馈（含行号和偏移量，区分普通批注和全局性批注）
 function formatComments(comments: Review['comments'], planContent: string): string {
   const unresolvedComments = comments.filter(c => !c.resolved);
@@ -541,6 +578,13 @@ async function main() {
 1. 退出 Plan Mode
 2. 切换到 Auto Accept Mode（自动接受编辑模式）
 3. 按照计划开始执行`;
+
+      // passThrough 模式：将评论作为建议附加
+      if (reviewResult.passThrough && unresolvedCount > 0) {
+        const suggestionsText = formatSuggestions(reviewResult.comments, reviewResult.planContent || '');
+        reason += `\n\n**用户建议**（非阻塞性反馈，可在实现过程中参考）：\n\n${suggestionsText}`;
+        debug('PassThrough mode: added suggestions to response', { unresolvedCount });
+      }
 
       // 如果有 planContent，附加到 reason 中
       if (reviewResult.planContent) {
