@@ -1,7 +1,7 @@
 {
   "name": "cc-plan-review",
   "version": "1.0.0",
-  "description": "MCP server for human review of Claude-generated plans with web UI",
+  "description": "Claude Code plugin for human review of plans with ExitPlanMode interception and Web UI",
   "main": "dist/index.js",
   "repository": {
     "type": "git",
@@ -34,9 +34,11 @@
     "start": "node dist/index.js"
   },
   "keywords": [
+    "claude-code",
+    "claude-code-plugin",
     "mcp",
     "mcp-server",
-    "claude",
+    "hooks",
     "plan-review",
     "human-review",
     "ai-assistant"
