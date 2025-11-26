@@ -2,17 +2,118 @@
 /**
  * ExitPlanMode 拦截脚本
  * 功能：拦截 ExitPlanMode 调用，创建 review session，阻塞等待用户审核完成
+ * 特性：按需启动 HTTP server（如果未运行）
  */
 
 import http from 'http';
+import net from 'net';
+import { spawn } from 'child_process';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const SERVER_HOST = 'localhost';
 const SERVER_PORT = 3030;
 const POLL_INTERVAL = 2000; // 轮询间隔 2 秒
 const MAX_WAIT_TIME = 570000; // 最大等待时间 570 秒（留 30 秒余量）
+const SERVER_STARTUP_TIMEOUT = 10000; // 等待 server 启动的超时时间
 
 // Debug 模式：通过环境变量控制
 const DEBUG = process.env.CC_PLAN_REVIEW_DEBUG === '1' || process.env.DEBUG === '1';
+
+// 检测端口是否有服务在监听
+function isServerRunning(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(1000);
+
+    socket.on('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+
+    socket.on('error', () => {
+      socket.destroy();
+      resolve(false);
+    });
+
+    socket.connect(SERVER_PORT, SERVER_HOST);
+  });
+}
+
+// 启动 HTTP server（独立进程）
+async function startHttpServer(): Promise<boolean> {
+  debug('Starting HTTP server...');
+
+  // http-only.js 与当前脚本在同一目录的上一级
+  const httpOnlyPath = path.join(__dirname, '..', 'http-only.js');
+  debug('HTTP server path', { httpOnlyPath });
+
+  return new Promise((resolve) => {
+    const child = spawn('node', [httpOnlyPath], {
+      detached: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: { ...process.env, CC_PLAN_REVIEW_DEBUG: DEBUG ? '1' : '0' }
+    });
+
+    let output = '';
+    const timeoutId = setTimeout(() => {
+      debug('Server startup timeout');
+      child.stdout?.removeAllListeners();
+      resolve(false);
+    }, SERVER_STARTUP_TIMEOUT);
+
+    child.stdout?.on('data', (data) => {
+      output += data.toString();
+      try {
+        const result = JSON.parse(output.trim());
+        clearTimeout(timeoutId);
+        if (result.status === 'ready') {
+          debug('HTTP server started successfully', { port: result.port });
+          child.unref(); // 允许父进程退出而不等待子进程
+          resolve(true);
+        } else {
+          debug('HTTP server failed to start', { result });
+          resolve(false);
+        }
+      } catch {
+        // 等待更多数据
+      }
+    });
+
+    child.on('error', (err) => {
+      clearTimeout(timeoutId);
+      debug('Failed to spawn HTTP server', { error: err.message });
+      resolve(false);
+    });
+  });
+}
+
+// 确保 HTTP server 正在运行
+async function ensureServerRunning(): Promise<boolean> {
+  if (await isServerRunning()) {
+    debug('HTTP server already running');
+    return true;
+  }
+
+  debug('HTTP server not running, attempting to start...');
+  const started = await startHttpServer();
+
+  if (started) {
+    // 等待一小段时间确保 server 完全就绪
+    await new Promise(r => setTimeout(r, 500));
+    return await isServerRunning();
+  }
+
+  return false;
+}
 
 function debug(message: string, data?: any) {
   if (!DEBUG) return;
@@ -302,6 +403,15 @@ async function main() {
 
     let review: Review;
     let isRevision = false;
+
+    // 确保 HTTP server 正在运行（在任何操作之前）
+    const serverRunning = await ensureServerRunning();
+    if (!serverRunning) {
+      debug('HTTP server not available, allowing through');
+      console.error('HTTP server not available');
+      console.log(JSON.stringify({ decision: 'approve' }));
+      process.exit(0);
+    }
 
     if (existingReviewId) {
       // 修订版本：更新已有 review

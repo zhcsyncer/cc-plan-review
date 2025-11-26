@@ -14,7 +14,10 @@ const __dirname = path.dirname(__filename);
 
 export interface HttpServerOptions {
   enableMcpEndpoint?: boolean;  // 是否启用 /mcp 端点，默认 true
+  idleTimeoutMs?: number;       // 空闲超时时间（毫秒），0 表示禁用，默认 30 分钟
 }
+
+const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 分钟
 
 export class HttpServer {
   private app: express.Express;
@@ -24,17 +27,57 @@ export class HttpServer {
   private options: HttpServerOptions;
   public port: number = 0;
 
+  // 空闲超时相关
+  private lastActivityTime: number = Date.now();
+  private idleCheckInterval: NodeJS.Timeout | null = null;
+
   constructor(reviewManager: ReviewManager, mcpService: McpService, options?: HttpServerOptions) {
     this.reviewManager = reviewManager;
     this.mcpService = mcpService;
-    this.options = { enableMcpEndpoint: true, ...options };
+    this.options = {
+      enableMcpEndpoint: true,
+      idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
+      ...options
+    };
     this.app = express();
     this.setupMiddleware();
     this.setupRoutes();
   }
 
+  // 重置活动时间
+  private resetActivityTimer() {
+    this.lastActivityTime = Date.now();
+  }
+
+  // 启动空闲检查
+  private startIdleCheck() {
+    const timeoutMs = this.options.idleTimeoutMs;
+    if (!timeoutMs || timeoutMs <= 0) {
+      logger.info('Idle timeout disabled');
+      return;
+    }
+
+    // 每分钟检查一次
+    this.idleCheckInterval = setInterval(() => {
+      const idleTime = Date.now() - this.lastActivityTime;
+      if (idleTime >= timeoutMs) {
+        logger.info(`Server idle for ${Math.round(idleTime / 60000)} minutes, shutting down...`);
+        this.stop();
+        process.exit(0);
+      }
+    }, 60 * 1000);
+
+    logger.info(`Idle timeout set to ${Math.round(timeoutMs / 60000)} minutes`);
+  }
+
   private setupMiddleware() {
     this.app.use(express.json());
+
+    // Activity tracking middleware (reset idle timer)
+    this.app.use((req, res, next) => {
+      this.resetActivityTimer();
+      next();
+    });
 
     // Request Logging Middleware
     this.app.use((req, res, next) => {
@@ -440,6 +483,10 @@ export class HttpServer {
           const address = server.address() as AddressInfo;
           this.port = address.port;
           logger.info(`API Server running at http://localhost:${this.port}`);
+
+          // 启动空闲检查
+          this.startIdleCheck();
+
           resolve(this.port);
         });
 
@@ -458,8 +505,14 @@ export class HttpServer {
   }
 
   stop() {
+    // 清除空闲检查定时器
+    if (this.idleCheckInterval) {
+      clearInterval(this.idleCheckInterval);
+      this.idleCheckInterval = null;
+    }
+
     if (this.serverInstance) {
-        this.serverInstance.close();
+      this.serverInstance.close();
     }
   }
 }
