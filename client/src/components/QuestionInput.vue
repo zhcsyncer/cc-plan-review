@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue';
 
 interface CommentQuestion {
-  type: 'clarification' | 'choice' | 'accepted';
+  type: 'clarification' | 'choice' | 'multiChoice' | 'accepted';
   message: string;
   options?: string[];
 }
@@ -19,12 +19,20 @@ const emit = defineEmits<{
 
 const inputValue = ref(props.answer || '');
 const selectedOption = ref(props.answer || '');
+const selectedOptions = ref<string[]>(props.answer ? parseMultiAnswer(props.answer) : []);
 const otherValue = ref('');
 const showOther = ref(false);
 
 const isAccepted = computed(() => props.question.type === 'accepted');
 const isChoice = computed(() => props.question.type === 'choice');
+const isMultiChoice = computed(() => props.question.type === 'multiChoice');
 const isClarification = computed(() => props.question.type === 'clarification');
+
+// 解析多选答案字符串
+function parseMultiAnswer(answer: string): string[] {
+  // 格式: "Option A, Option B, Other: xxx"
+  return answer.split(', ').filter(s => s.trim());
+}
 
 function submitAnswer() {
   let answer = '';
@@ -34,6 +42,12 @@ function submitAnswer() {
     } else if (selectedOption.value) {
       answer = selectedOption.value;
     }
+  } else if (isMultiChoice.value) {
+    const parts = [...selectedOptions.value];
+    if (showOther.value && otherValue.value.trim()) {
+      parts.push(`Other: ${otherValue.value.trim()}`);
+    }
+    answer = parts.join(', ');
   } else if (isClarification.value) {
     answer = inputValue.value.trim();
   }
@@ -52,6 +66,23 @@ function selectOther() {
   selectedOption.value = '';
   showOther.value = true;
 }
+
+function toggleOption(option: string) {
+  const idx = selectedOptions.value.indexOf(option);
+  if (idx >= 0) {
+    selectedOptions.value.splice(idx, 1);
+  } else {
+    selectedOptions.value.push(option);
+  }
+}
+
+function toggleOther() {
+  showOther.value = !showOther.value;
+}
+
+const canSubmitMultiChoice = computed(() => {
+  return selectedOptions.value.length > 0 || (showOther.value && otherValue.value.trim());
+});
 </script>
 
 <template>
@@ -144,6 +175,65 @@ function selectOther() {
         class="mt-3 px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
         Submit Choice
+      </button>
+      <div v-else class="mt-2 text-sm text-green-600 dark:text-green-400">
+        ✓ Selected: {{ answer }}
+      </div>
+    </div>
+
+    <!-- MultiChoice type: checkboxes -->
+    <div v-else-if="isMultiChoice && question.options">
+      <div class="space-y-2">
+        <label
+          v-for="option in question.options"
+          :key="option"
+          class="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors"
+          :class="{ 'bg-purple-100 dark:bg-purple-900/40': selectedOptions.includes(option) }"
+        >
+          <input
+            type="checkbox"
+            :value="option"
+            :checked="selectedOptions.includes(option)"
+            @change="toggleOption(option)"
+            :disabled="!!answer"
+            class="text-purple-600 rounded"
+          />
+          <span class="text-sm text-text-primary-light dark:text-text-primary-dark">{{ option }}</span>
+        </label>
+
+        <!-- Other option -->
+        <label
+          class="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors"
+          :class="{ 'bg-purple-100 dark:bg-purple-900/40': showOther }"
+        >
+          <input
+            type="checkbox"
+            :checked="showOther"
+            @change="toggleOther"
+            :disabled="!!answer"
+            class="text-purple-600 rounded"
+          />
+          <span class="text-sm text-text-primary-light dark:text-text-primary-dark">Other</span>
+        </label>
+
+        <!-- Other input -->
+        <div v-if="showOther && !answer" class="ml-6">
+          <input
+            v-model="otherValue"
+            type="text"
+            class="w-full border border-purple-300 dark:border-purple-700 rounded p-2 text-sm bg-white dark:bg-gray-800 text-text-primary-light dark:text-text-primary-dark focus:ring-2 focus:ring-purple-500 outline-none"
+            placeholder="Specify your choice..."
+          />
+        </div>
+      </div>
+
+      <button
+        v-if="!answer"
+        @click="submitAnswer"
+        :disabled="!canSubmitMultiChoice"
+        class="mt-3 px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      >
+        Submit Choices
       </button>
       <div v-else class="mt-2 text-sm text-green-600 dark:text-green-400">
         ✓ Selected: {{ answer }}
