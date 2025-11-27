@@ -116,37 +116,16 @@ open → changes_requested → discussing → approved
   - `.claude-plugin/marketplace.json`
 
 **分支策略**：
-- `develop` 分支：`.gitignore` 忽略 `dist/`，开发时不跟踪构建产物
-- `main` 分支：`.gitignore` **不忽略** `dist/`，构建产物被 git 跟踪，用于发布
+- `develop` 分支：开发分支，`.gitignore` 忽略 `dist/`
+- `main` 分支：发布分支，`dist/` 被 git 跟踪
 
-**发布流程**（必须严格遵守）：
+**发布流程**：
 
-```bash
-# 1. 在 develop 分支更新版本号（4 个文件）
-# 手动编辑或使用脚本更新 version 字段
+1. 在 `develop` 分支更新版本号（4 个文件）并提交
+2. 创建 PR 合并到 `main`
+3. PR 合并后，GitHub Actions 自动构建、提交 dist/、创建 Release
 
-# 2. 提交版本号变更
-git add package.json client/package.json .claude-plugin/
-git commit -m "chore: bump version to x.x.x"
-
-# 3. 切换到 main 分支
-git checkout main
-
-# 4. 合并 develop
-git merge develop
-
-# 5. 重新构建（关键！切换分支后 dist/ 会被回滚到旧版本）
-pnpm build
-
-# 6. 提交构建产物
-git add dist/
-git commit -m "build: update dist for vx.x.x"
-
-# 7. 推送发布
-git push origin main
-
-# 8. 切回 develop 继续开发
-git checkout develop
-```
-
-⚠️ **注意**：合并到 `main` 后必须重新执行 `pnpm build`，否则 `dist/` 是旧版本（被 git checkout 回滚）。
+> **为什么在 develop 而非 CI 中更新版本号？**
+> - 语义化版本需要人工判断（patch/minor/major）
+> - 4 个文件需同步更新，PR 中可审查一致性
+> - CI 职责是构建发布，不应决定版本号

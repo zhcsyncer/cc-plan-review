@@ -146,9 +146,7 @@ function clearTimeoutWarning() {
 // 快捷键帮助面板
 const showKeyboardHelp = ref(false);
 
-// 快捷键 Approve 连击确认
-const approveShortcutPending = ref(false);
-let approveShortcutTimer: number | null = null;
+// 注：快捷键直接复用 confirmPending 状态，无需单独的确认逻辑
 
 // 选中文本状态（用于 C 键快捷键）
 const hasTextSelection = ref(false);
@@ -668,34 +666,14 @@ function onSelectionChange(data: CommentRequest | null) {
   selectionData.value = data;
 }
 
-// 快捷键 Approve（连击确认）
+// 快捷键 Approve（连击确认）- 复用 confirmPending 状态
 function handleApproveShortcut() {
   // 仅在非只读、非加载状态下触发
   if (isReadOnly.value || loading.value || showSubmittedView.value || isWaitingForAgent.value) {
     return;
   }
 
-  // 第一次按下：进入确认状态
-  if (!approveShortcutPending.value) {
-    approveShortcutPending.value = true;
-
-    // 启动 3 秒倒计时
-    approveShortcutTimer = window.setTimeout(() => {
-      approveShortcutPending.value = false;
-      approveShortcutTimer = null;
-    }, 3000);
-
-    return;
-  }
-
-  // 第二次按下：执行提交
-  if (approveShortcutTimer) {
-    clearTimeout(approveShortcutTimer);
-    approveShortcutTimer = null;
-  }
-  approveShortcutPending.value = false;
-
-  // 执行提交
+  // 直接调用 onSubmitReview，复用其确认逻辑
   onSubmitReview();
 }
 
@@ -711,9 +689,9 @@ const { register, isMac: isMacKeyboard } = useKeyboard();
 const unregisterCallbacks: Array<() => void> = [];
 
 onMounted(() => {
-  // 全局 Approve 快捷键 (Cmd+Shift+P / Ctrl+Shift+P)
+  // 全局 Approve 快捷键 (Cmd+Shift+Enter / Ctrl+Shift+Enter)
   unregisterCallbacks.push(register({
-    key: 'p',
+    key: 'enter',
     modifiers: { mod: true, shift: true },
     handler: handleApproveShortcut,
     description: 'Approve / Submit Review',
@@ -797,12 +775,6 @@ onMounted(() => {
 onUnmounted(() => {
   // 注销所有快捷键
   unregisterCallbacks.forEach(fn => fn());
-
-  // 清理快捷键确认定时器
-  if (approveShortcutTimer) {
-    clearTimeout(approveShortcutTimer);
-    approveShortcutTimer = null;
-  }
 });
 </script>
 
@@ -1022,11 +994,11 @@ onUnmounted(() => {
       leave-to-class="opacity-0 translate-y-4"
     >
       <div
-        v-if="approveShortcutPending"
+        v-if="confirmPending"
         class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-pulse"
       >
         <span>Press</span>
-        <Kbd keys="mod+shift+p" class="!bg-red-800 !border-red-500" />
+        <Kbd keys="mod+shift+enter" class="!bg-red-800 !border-red-500" />
         <span>again to confirm</span>
       </div>
     </Transition>
