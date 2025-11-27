@@ -360,8 +360,13 @@ export class HttpServer {
 
         const previousStatus = review.status;
 
-        // 如果有全局性意见 note，先创建一个全局性批注
-        if (note && typeof note === 'string' && note.trim()) {
+        // 判断是否有反馈内容（note 或 comments）
+        const hasNote = note && typeof note === 'string' && note.trim();
+        const hasUnresolvedComments = review.comments.some(c => !c.resolved);
+        const hasFeedback = hasNote || hasUnresolvedComments;
+
+        // 如果有全局性意见 note，创建一个全局性批注
+        if (hasNote) {
           await this.reviewManager.addComment(req.params.id, {
             quote: '',
             comment: note.trim(),
@@ -369,9 +374,6 @@ export class HttpServer {
           });
           logger.info(`Added global note to review ${req.params.id}`);
         }
-
-        // 检查是否有未解决的 comments
-        const hasUnresolvedComments = review.comments.some(c => !c.resolved);
 
         // passThrough 模式：直接批准，comments 作为建议传递
         if (passThrough) {
@@ -391,9 +393,9 @@ export class HttpServer {
           return;
         }
 
-        // 非 passThrough 模式：根据是否有 comments 决定
-        if (hasUnresolvedComments) {
-          // 有未解决的 comments -> 请求修改
+        // 非 passThrough 模式：根据是否有反馈决定
+        if (hasFeedback) {
+          // 有反馈（note 或 comments）-> 请求修改
           const updatedReview = await this.reviewManager.submitFeedback(req.params.id);
 
           if (previousStatus && previousStatus !== updatedReview.status) {
@@ -403,12 +405,9 @@ export class HttpServer {
           logger.info(`Review ${req.params.id} submitted with changes requested`);
           res.json({ status: "ok", reviewStatus: updatedReview.status });
         } else {
-          // 无 comments -> 直接批准
+          // 无反馈 -> 直接批准
           review.status = 'approved';
           review.approvedDirectly = true;
-          if (note) {
-            review.approvalNote = note;
-          }
           await this.reviewManager._save(review);
 
           if (previousStatus !== review.status) {

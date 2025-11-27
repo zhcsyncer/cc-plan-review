@@ -689,9 +689,9 @@ const { register, isMac: isMacKeyboard } = useKeyboard();
 const unregisterCallbacks: Array<() => void> = [];
 
 onMounted(() => {
-  // 全局 Approve 快捷键 (Cmd+Shift+P / Ctrl+Shift+P)
+  // 全局 Approve 快捷键 (Cmd+Shift+Enter / Ctrl+Shift+Enter)
   unregisterCallbacks.push(register({
-    key: 'p',
+    key: 'enter',
     modifiers: { mod: true, shift: true },
     handler: handleApproveShortcut,
     description: 'Approve / Submit Review',
@@ -998,7 +998,7 @@ onUnmounted(() => {
         class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-pulse"
       >
         <span>Press</span>
-        <Kbd keys="mod+shift+p" class="!bg-red-800 !border-red-500" />
+        <Kbd keys="mod+shift+enter" class="!bg-red-800 !border-red-500" />
         <span>again to confirm</span>
       </div>
     </Transition>

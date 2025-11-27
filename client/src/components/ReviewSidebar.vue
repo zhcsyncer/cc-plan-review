@@ -58,6 +58,9 @@ function handleApprovalNoteKeydown(e: KeyboardEvent) {
 const unresolvedComments = computed(() => props.comments.filter(c => !c.resolved));
 const resolvedComments = computed(() => props.comments.filter(c => c.resolved));
 
+// 计算属性：是否有全局 note
+const hasNote = computed(() => !!props.approvalNote?.trim());
+
 // 计算属性：是否所有问题都已回答
 const allQuestionsAnswered = computed(() => {
   if (!props.hasQuestions) return true;
@@ -249,8 +252,8 @@ function toggleExpand(c: Comment) {
 
     <!-- Footer -->
     <div class="p-4 border-t border-border-light dark:border-border-dark bg-app-surface-light dark:bg-app-surface-dark transition-colors duration-200">
-      <!-- PassThrough 开关（仅在有未解决评论时显示） -->
-      <div v-if="unresolvedComments.length > 0 && !hasQuestions && !isReadOnly" class="mb-3">
+      <!-- PassThrough 开关（有未解决评论或全局 note 时显示） -->
+      <div v-if="(unresolvedComments.length > 0 || hasNote) && !hasQuestions && !isReadOnly" class="mb-3">
         <PassThroughSwitch
           :model-value="passThrough ?? false"
           @update:model-value="emit('update:passThrough', $event)"
