@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onUnmounted } from 'vue';
 import { Trash2, Edit2, Check, X, ChevronDown, ChevronUp } from 'lucide-vue-next';
 import QuestionInput from './QuestionInput.vue';
 import Kbd from './Kbd.vue';
@@ -45,6 +45,47 @@ const emit = defineEmits<{
   (e: 'update:approvalNote', value: string): void;
   (e: 'update:passThrough', value: boolean): void;
 }>();
+
+// 删除二次确认状态
+const deletePendingId = ref<string | null>(null);
+let deleteTimer: number | null = null;
+
+// 处理删除评论（二次确认）
+function handleDeleteClick(id: string) {
+  // 第一次点击：进入确认状态
+  if (deletePendingId.value !== id) {
+    // 清除之前的待确认状态
+    if (deleteTimer) {
+      clearTimeout(deleteTimer);
+      deleteTimer = null;
+    }
+    deletePendingId.value = id;
+
+    // 启动3秒倒计时
+    deleteTimer = window.setTimeout(() => {
+      deletePendingId.value = null;
+      deleteTimer = null;
+    }, 3000);
+
+    return;
+  }
+
+  // 第二次点击：执行删除
+  if (deleteTimer) {
+    clearTimeout(deleteTimer);
+    deleteTimer = null;
+  }
+  deletePendingId.value = null;
+  emit('delete-comment', id);
+}
+
+// 清理定时器
+onUnmounted(() => {
+  if (deleteTimer) {
+    clearTimeout(deleteTimer);
+    deleteTimer = null;
+  }
+});
 
 // 处理全局意见输入框的快捷键
 function handleApprovalNoteKeydown(e: KeyboardEvent) {
@@ -187,11 +228,20 @@ function toggleExpand(c: Comment) {
           </div>
 
           <!-- 编辑/删除按钮（仅非只读模式显示） -->
-          <div v-if="!isReadOnly && !c.question" class="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div v-if="!isReadOnly && !c.question" class="flex justify-end gap-2 transition-opacity" :class="deletePendingId === c.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'">
             <button @click.stop="startEdit(c)" class="p-1 text-text-secondary-light dark:text-text-secondary-dark hover:text-claude-primary dark:hover:text-claude-primary-dark">
               <Edit2 :size="14" />
             </button>
-            <button @click.stop="emit('delete-comment', c.id)" class="p-1 text-text-secondary-light dark:text-text-secondary-dark hover:text-red-600">
+            <button
+              @click.stop="handleDeleteClick(c.id)"
+              :class="[
+                'p-1 transition-colors',
+                deletePendingId === c.id
+                  ? 'text-red-600 animate-pulse'
+                  : 'text-text-secondary-light dark:text-text-secondary-dark hover:text-red-600'
+              ]"
+              :title="deletePendingId === c.id ? 'Click again to confirm' : 'Delete comment'"
+            >
               <Trash2 :size="14" />
             </button>
           </div>
@@ -290,7 +340,7 @@ function toggleExpand(c: Comment) {
         <span>{{ buttonText }}</span>
         <Kbd
           v-if="!confirmPending && !buttonDisabled"
-          keys="mod+shift+p"
+          keys="mod+shift+enter"
           class="!bg-white/20 !border-white/30 !text-white/80 !shadow-none"
         />
       </button>

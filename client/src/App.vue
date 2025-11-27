@@ -559,7 +559,7 @@ async function onUpdateComment(id: string, text: string) {
 }
 
 async function onDeleteComment(id: string) {
-  if (!confirm('Delete this comment?')) return;
+  // 二次确认已在 ReviewSidebar 中处理
   try {
     const res = await fetch(`/api/reviews/${reviewId.value}/comments/${id}`, {
       method: 'DELETE'
@@ -567,7 +567,7 @@ async function onDeleteComment(id: string) {
     if (!res.ok) throw new Error('Failed');
     comments.value = comments.value.filter(c => c.id !== id);
   } catch (e) {
-    alert('Error deleting comment');
+    console.error('Error deleting comment:', e);
   }
 }
 
@@ -696,6 +696,7 @@ onMounted(() => {
     handler: handleApproveShortcut,
     description: 'Approve / Submit Review',
     group: 'Review',
+    context: 'Global, not in input',
   }));
 
   // 评论快捷键 (C)
@@ -708,6 +709,7 @@ onMounted(() => {
     },
     description: 'Add comment to selected text',
     group: 'Comments',
+    context: 'When text is selected',
   }));
 
   // 版本切换快捷键 (←)
@@ -721,6 +723,7 @@ onMounted(() => {
     },
     description: 'Previous version',
     group: 'Navigation',
+    context: 'Global, not in input',
   }));
 
   // 版本切换快捷键 (→)
@@ -734,6 +737,7 @@ onMounted(() => {
     },
     description: 'Next version',
     group: 'Navigation',
+    context: 'Global, not in input',
   }));
 
   // 快捷键帮助 (?)
@@ -742,6 +746,7 @@ onMounted(() => {
     handler: () => { showKeyboardHelp.value = true; },
     description: 'Show keyboard shortcuts',
     group: 'General',
+    context: 'Global, not in input',
   }));
 
   // 快捷键帮助 (Cmd+/ / Ctrl+/)
@@ -751,6 +756,7 @@ onMounted(() => {
     handler: () => { showKeyboardHelp.value = true; },
     description: 'Show keyboard shortcuts',
     group: 'General',
+    context: 'Global',
   }));
 
   // Escape 关闭弹窗
@@ -769,6 +775,7 @@ onMounted(() => {
     description: 'Close modal / dialog',
     group: 'General',
     enableInInput: true,
+    context: 'When modal is open',
   }));
 });
 

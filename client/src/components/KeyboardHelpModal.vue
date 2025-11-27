@@ -104,9 +104,17 @@ const sortedGroups = computed(() => {
                   :key="binding.id"
                   class="flex items-center justify-between py-2 px-3 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50"
                 >
-                  <span class="text-text-primary-light dark:text-text-primary-dark">
-                    {{ binding.description }}
-                  </span>
+                  <div class="flex flex-col">
+                    <span class="text-text-primary-light dark:text-text-primary-dark">
+                      {{ binding.description }}
+                    </span>
+                    <span
+                      v-if="binding.context"
+                      class="text-xs text-text-secondary-light dark:text-text-secondary-dark mt-0.5"
+                    >
+                      {{ binding.context }}
+                    </span>
+                  </div>
                   <Kbd :keys="bindingToKeys(binding)" />
                 </div>
               </div>

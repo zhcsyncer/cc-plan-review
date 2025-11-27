@@ -14,6 +14,7 @@ export interface KeyBinding {
   description: string;
   group: string;
   enableInInput?: boolean;  // 是否在输入框内也触发，默认 false
+  context?: string;  // 使用场景提示，如 "When text is selected"
 }
 
 // 全局快捷键注册表（单例）
