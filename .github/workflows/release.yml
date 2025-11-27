@@ -10,6 +10,7 @@ on:
       - 'client/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
+      - '.github/workflows/**'
 
 jobs:
   build-and-release:
