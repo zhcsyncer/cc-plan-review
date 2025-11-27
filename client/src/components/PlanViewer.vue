@@ -76,6 +76,12 @@ const markdownBodyRef = ref<HTMLElement | null>(null);
 function highlightComments() {
   if (!markInstance.value) return;
 
+  const container = document.querySelector('.markdown-body');
+  if (!container) return;
+
+  // 获取 DOM 文本内容，用于计算位置
+  const textContent = container.textContent || '';
+
   // 清除旧高亮
   markInstance.value.unmark({
     done: () => {
@@ -83,10 +89,41 @@ function highlightComments() {
       props.comments
         .filter(comment => comment.documentVersion === props.currentVersion)
         .forEach(comment => {
+          // 找出该文本在 DOM 中的所有出现位置
+          const occurrences: number[] = [];
+          let idx = 0;
+          while ((idx = textContent.indexOf(comment.quote, idx)) !== -1) {
+            occurrences.push(idx);
+            idx += 1;
+          }
+
+          if (occurrences.length === 0) return;
+
+          // 根据 markdown 位置确定应该高亮哪个出现
+          let targetOccurrence = 0;
+          if (occurrences.length > 1) {
+            // 找到与 markdown 位置最接近的出现
+            const mdOffset = comment.position.startOffset;
+            let minDiff = Infinity;
+            occurrences.forEach((domOffset, i) => {
+              const diff = Math.abs(domOffset - mdOffset);
+              if (diff < minDiff) {
+                minDiff = diff;
+                targetOccurrence = i;
+              }
+            });
+          }
+
+          let currentOccurrence = 0;
           markInstance.value?.mark(comment.quote, {
             className: 'comment-highlight',
             acrossElements: true,
             separateWordSearch: false,
+            filter: () => {
+              const shouldMark = currentOccurrence === targetOccurrence;
+              currentOccurrence++;
+              return shouldMark;
+            },
             each: (element: HTMLElement) => {
               element.dataset.commentId = comment.id;
               // 添加点击事件
