@@ -35564,7 +35564,10 @@ var HttpServer = class {
           return;
         }
         const previousStatus = review.status;
-        if (note && typeof note === "string" && note.trim()) {
+        const hasNote = note && typeof note === "string" && note.trim();
+        const hasUnresolvedComments = review.comments.some((c) => !c.resolved);
+        const hasFeedback = hasNote || hasUnresolvedComments;
+        if (hasNote) {
           await this.reviewManager.addComment(req.params.id, {
             quote: "",
             comment: note.trim(),
@@ -35573,7 +35576,6 @@ var HttpServer = class {
           });
           logger.info(`Added global note to review ${req.params.id}`);
         }
-        const hasUnresolvedComments = review.comments.some((c) => !c.resolved);
         if (passThrough) {
           review.status = "approved";
           review.approvedDirectly = true;
@@ -35586,7 +35588,7 @@ var HttpServer = class {
           res.json({ status: "ok", reviewStatus: review.status, passThrough: true });
           return;
         }
-        if (hasUnresolvedComments) {
+        if (hasFeedback) {
           const updatedReview = await this.reviewManager.submitFeedback(req.params.id);
           if (previousStatus && previousStatus !== updatedReview.status) {
             reviewEventBus.emitStatusChanged(req.params.id, updatedReview.status, previousStatus);
@@ -35596,9 +35598,6 @@ var HttpServer = class {
         } else {
           review.status = "approved";
           review.approvedDirectly = true;
-          if (note) {
-            review.approvalNote = note;
-          }
           await this.reviewManager._save(review);
           if (previousStatus !== review.status) {
             reviewEventBus.emitStatusChanged(req.params.id, review.status, previousStatus, review.planContent);
