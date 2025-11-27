@@ -109,23 +109,22 @@ open → changes_requested → discussing → approved
 **版本号规范**（遵循 semver）：
 - 格式：`MAJOR.MINOR.PATCH[-PRERELEASE]`
 - 示例：`0.0.1-alpha.1`、`0.1.0`、`1.0.0`
-- 需同步更新的文件：
-  - `package.json`
-  - `client/package.json`
-  - `.claude-plugin/plugin.json`
-  - `.claude-plugin/marketplace.json`
 
 **分支策略**：
-- `develop` 分支：开发分支，`.gitignore` 忽略 `dist/`
-- `main` 分支：发布分支，`dist/` 被 git 跟踪
+- `main` 分支：主分支，始终保持可用状态
+- Feature 分支：从 main 创建，完成后 PR 合并回 main
+- `.gitignore` 包含 `dist/`，Release workflow 使用 `git add -A` 提交
 
-**发布流程**：
+**CI/CD 流程**：
 
-1. 在 `develop` 分支更新版本号（4 个文件）并提交
-2. 创建 PR 合并到 `main`
-3. PR 合并后，GitHub Actions 自动构建、提交 dist/、创建 Release
+| Workflow | 触发 | 行为 |
+|----------|------|------|
+| CI | PR 创建/更新 | 验证构建能否通过 |
+| Release | 手动触发 | 构建 + 更新版本 + 发布 |
 
-> **为什么在 develop 而非 CI 中更新版本号？**
-> - 语义化版本需要人工判断（patch/minor/major）
-> - 4 个文件需同步更新，PR 中可审查一致性
-> - CI 职责是构建发布，不应决定版本号
+**发布步骤**：
+
+1. 确保所有需要的 feature 已合并到 main
+2. 在 GitHub Actions 页面手动触发 Release workflow
+3. 输入版本号（如 `0.1.0`）
+4. Workflow 自动：更新版本号 → 构建 → 提交 dist/ → 打 tag → 创建 Release
