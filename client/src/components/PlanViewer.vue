@@ -4,6 +4,7 @@ import { marked } from 'marked';
 import mermaid from 'mermaid';
 import hljs from 'highlight.js/lib/core';
 import Mark from 'mark.js';
+import { sanitizeMarkdownSync } from '../composables/useMarkdownSanitizer';
 
 // 导入常用语言支持
 import javascript from 'highlight.js/lib/languages/javascript';
@@ -186,7 +187,11 @@ renderer.code = function(code, language, isEscaped) {
 
 marked.use({ renderer });
 
-const renderedContent = computed(() => marked.parse(props.content));
+// Sanitize markdown to fix code block nesting issues, then render
+const renderedContent = computed(() => {
+  const sanitized = sanitizeMarkdownSync(props.content);
+  return marked.parse(sanitized);
+});
 
 // 监听选区变化（当选区被清除时隐藏按钮）
 function handleSelectionChange() {
