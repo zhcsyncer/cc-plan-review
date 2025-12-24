@@ -1,5 +1,5 @@
 {
   "name": "cc-plan-review",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "GUI-based plan review for Claude Code with ExitPlanMode interception"
 }
