@@ -33,8 +33,8 @@ jobs:
           cd client && npm version ${{ inputs.version }} --no-git-tag-version && cd ..
           # 更新 plugin.json
           jq '.version = "${{ inputs.version }}"' .claude-plugin/plugin.json > tmp.json && mv tmp.json .claude-plugin/plugin.json
-          # 更新 marketplace.json
-          jq '.version = "${{ inputs.version }}"' .claude-plugin/marketplace.json > tmp.json && mv tmp.json .claude-plugin/marketplace.json
+          # 更新 marketplace.json (顶层版本和插件版本)
+          jq '.version = "${{ inputs.version }}" | .plugins[0].version = "${{ inputs.version }}"' .claude-plugin/marketplace.json > tmp.json && mv tmp.json .claude-plugin/marketplace.json
 
       - run: pnpm install
       - run: pnpm build
